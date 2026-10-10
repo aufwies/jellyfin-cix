@@ -10,6 +10,7 @@ permissions:
 
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  BASE_REGISTRY: docker.io
 
 jobs:
   release:
@@ -20,7 +21,7 @@ jobs:
         run: |
           S=""; [ "$(id -u)" = "0" ] || S="sudo"
           $S apt-get update -qq
-          $S apt-get install -y -qq git curl ca-certificates podman
+          $S apt-get install -y -qq git curl ca-certificates
 
       - name: Clone
         run: |
@@ -35,6 +36,7 @@ jobs:
           UPSTREAM_TAG=$(git describe --tags --abbrev=0)
           git checkout -q "$UPSTREAM_TAG"
           for p in ../patches/*.patch; do
+            [ -f "$p" ] || { echo "无补丁"; exit 1; }
             git am --committer-date-is-author-date "$p" || exit 1
           done
           cd ..
@@ -46,17 +48,35 @@ jobs:
 
       - name: Build image
         run: |
+          if command -v docker >/dev/null; then OCI=docker; else OCI=podman; fi
           export PATH="/usr/local/bin:$PATH"
           TAG="${GITHUB_REF_NAME#v}"
-          podman build --layers=false \
-            --build-arg BASE_REGISTRY="${BASE_REGISTRY:-docker.m.daocloud.io}" \
-            -t "jellyfin-cix:${TAG}" .
+          if [[ "$GITHUB_SERVER_URL" == *github.com* ]]; then
+            REG="${BASE_REGISTRY}"
+          else
+            REG="docker.m.daocloud.io"
+          fi
+          $OCI build --build-arg BASE_REGISTRY="$REG" -t "jellyfin-cix:${TAG}" .
 
       - name: Push to Forgejo registry
-        if: ${{ env.GITHUB_SERVER_URL != 'https://github.com' }}
         run: |
+          if [[ "$GITHUB_SERVER_URL" == *github.com* ]]; then
+            echo "GitHub 环境, 跳过内部推送"
+            exit 0
+          fi
+          if ! command -v podman >/dev/null; then
+            S=""; [ "$(id -u)" = "0" ] || S="sudo"; $S apt-get install -y -qq podman
+          fi
           TAG="${GITHUB_REF_NAME#v}"
           REGISTRY_HOST="${GITHUB_SERVER_URL#https://}"
           podman login "$REGISTRY_HOST" -u rgan -p "${{ secrets.PUBLISH_TOKEN }}"
           podman tag "jellyfin-cix:${TAG}" "$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}"
           podman push "$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}"
+
+      - name: Create GitHub Release (GitHub only)
+        if: ${{ env.GITHUB_SERVER_URL == 'https://github.com' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
