@@ -31,6 +31,19 @@ jobs:
           fi
           git submodule update --init
 
+      - name: Install .NET SDK
+        run: |
+          # 内部环境从 Forgejo 镜像拉, GitHub 从官方
+          if [[ "$GITHUB_SERVER_URL" != *github.com* ]]; then
+            curl -sS --user "rgan:${{ secrets.PUBLISH_TOKEN }}" \
+              -o /tmp/dotnet-sdk.tar.gz \
+              "$GITHUB_SERVER_URL/api/packages/rgan/generic/dotnet-sdk/9.0.318/dotnet-sdk-9.0.318-linux-arm64.tar.gz"
+            mkdir -p "$HOME/.dotnet" && tar -xzf /tmp/dotnet-sdk.tar.gz -C "$HOME/.dotnet"
+          else
+            curl -fsSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 9.0 --install-dir "$HOME/.dotnet"
+          fi
+          echo "$HOME/.dotnet" >> "$GITHUB_PATH"
+
       - name: Apply patches
         run: |
           cd jellyfin
