@@ -1,0 +1,222 @@
+From 660f3f4656e7615d85301f301eee018be9599da8 Mon Sep 17 00:00:00 2001
+From: rgan <rgan@localhost>
+Date: Fri, 9 Oct 2026 11:47:10 +0800
+Subject: [PATCH] feat: add CIX VPU hardware acceleration type (cix)
+
+- New HardwareAccelerationType.cix enum value
+- GetHwaccelType: for cix, select the ffmpeg v4l2m2m decoder
+  explicitly via -c:v (mvxdec supports h264/hevc/vp8/vp9/av1/
+  mpeg2/mpeg4/h263, up to 8K); unsupported codecs fall back to
+  software decoding
+- Encoder mapping: cix -> h264_v4l2m2m / hevc_v4l2m2m (mvxenc),
+  guarded by SupportsEncoder probe
+- Support probe: IsCixVpuSupported requires h264_v4l2m2m and
+  hevc_v4l2m2m decoders on Linux
+- Unit tests: 11 cases covering all codecs, unsupported fallback
+  and missing-decoder fallback
+---
+ .../MediaEncoding/EncodingHelper.cs           |  40 +++++++
+ .../Entities/HardwareAccelerationType.cs      |   7 +-
+ .../EncodingHelperTests.cs                    | 102 ++++++++++++++++++
+ 3 files changed, 148 insertions(+), 1 deletion(-)
+ create mode 100644 tests/Jellyfin.MediaEncoding.Tests/EncodingHelperTests.cs
+
+diff --git a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
+index 8aeec3f3d..7d4c6b0c0 100644
+--- a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
++++ b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
+@@ -218,6 +218,7 @@ namespace MediaBrowser.Controller.MediaEncoding
+                     { HardwareAccelerationType.videotoolbox,         hwEncoder + "_videotoolbox" },
+                     { HardwareAccelerationType.v4l2m2m,              hwEncoder + "_v4l2m2m" },
+                     { HardwareAccelerationType.rkmpp,                hwEncoder + "_rkmpp" },
++                    { HardwareAccelerationType.cix,                  hwEncoder + "_v4l2m2m" },
+                 };
+ 
+                 if (hwType != HardwareAccelerationType.none
+@@ -291,6 +292,29 @@ namespace MediaBrowser.Controller.MediaEncoding
+                    && _mediaEncoder.SupportsFilter("overlay_rkrga");
+         }
+ 
++        private bool IsCixVpuSupported()
++        {
++            return OperatingSystem.IsLinux()
++                   && _mediaEncoder.SupportsDecoder("h264_v4l2m2m")
++                   && _mediaEncoder.SupportsDecoder("hevc_v4l2m2m");
++        }
++
++        private static string GetCixVpuDecoderName(string videoCodec)
++        {
++            return videoCodec?.ToLowerInvariant() switch
++            {
++                "h264" => "h264_v4l2m2m",
++                "hevc" or "h265" => "hevc_v4l2m2m",
++                "vp8" => "vp8_v4l2m2m",
++                "vp9" => "vp9_v4l2m2m",
++                "av1" => "av1_v4l2m2m",
++                "mpeg2video" => "mpeg2_v4l2m2m",
++                "mpeg4" => "mpeg4_v4l2m2m",
++                "h263" => "h263_v4l2m2m",
++                _ => null
++            };
++        }
++
+         private bool IsOpenclFullSupported()
+         {
+             return _mediaEncoder.SupportsHwaccel("opencl")
+@@ -6515,6 +6539,7 @@ namespace MediaBrowser.Controller.MediaEncoding
+             var isQsvSupported = (isLinux || isWindows) && _mediaEncoder.SupportsHwaccel("qsv");
+             var isVideotoolboxSupported = isMacOS && _mediaEncoder.SupportsHwaccel("videotoolbox");
+             var isRkmppSupported = isLinux && IsRkmppFullSupported();
++            var isCixVpuSupported = isLinux && IsCixVpuSupported();
+             var isCodecAvailable = options.HardwareDecodingCodecs.Contains(videoCodec, StringComparison.OrdinalIgnoreCase);
+             var hardwareAccelerationType = options.HardwareAccelerationType;
+ 
+@@ -6654,6 +6679,21 @@ namespace MediaBrowser.Controller.MediaEncoding
+                 return " -hwaccel rkmpp" + (outputHwSurface ? " -hwaccel_output_format drm_prime -noautorotate" + stripRotationDataArgs : string.Empty);
+             }
+ 
++            // CIX VPU: the v4l2m2m decoders are regular codecs (not -hwaccel
++            // contexts), so select them explicitly with -c:v on the input.
++            if (hardwareAccelerationType == HardwareAccelerationType.cix
++                && isCixVpuSupported
++                && isCodecAvailable)
++            {
++                var cixDecoder = GetCixVpuDecoderName(videoCodec);
++                if (cixDecoder is not null)
++                {
++                    return " -c:v " + cixDecoder;
++                }
++
++                return null;
++            }
++
+             return null;
+         }
+ 
+diff --git a/MediaBrowser.Model/Entities/HardwareAccelerationType.cs b/MediaBrowser.Model/Entities/HardwareAccelerationType.cs
+index ece18ec3e..f3ad4e30c 100644
+--- a/MediaBrowser.Model/Entities/HardwareAccelerationType.cs
++++ b/MediaBrowser.Model/Entities/HardwareAccelerationType.cs
+@@ -45,5 +45,10 @@ public enum HardwareAccelerationType
+     /// <summary>
+     /// Rockchip Media Process Platform (RKMPP).
+     /// </summary>
+-    rkmpp = 7
++    rkmpp = 7,
++
++    /// <summary>
++    /// CIX VPU (direct v4l2m2m codec devices).
++    /// </summary>
++    cix = 8
+ }
+diff --git a/tests/Jellyfin.MediaEncoding.Tests/EncodingHelperTests.cs b/tests/Jellyfin.MediaEncoding.Tests/EncodingHelperTests.cs
+new file mode 100644
+index 000000000..f2b35b351
+--- /dev/null
++++ b/tests/Jellyfin.MediaEncoding.Tests/EncodingHelperTests.cs
+@@ -0,0 +1,102 @@
++using System;
++using MediaBrowser.Common.Configuration;
++using MediaBrowser.Controller.IO;
++using MediaBrowser.Controller.MediaEncoding;
++using MediaBrowser.Model.Configuration;
++using MediaBrowser.Model.Dto;
++using MediaBrowser.Model.Entities;
++using MediaBrowser.Model.Session;
++using Microsoft.Extensions.Logging.Abstractions;
++using Moq;
++using Xunit;
++
++namespace Jellyfin.MediaEncoding.Tests
++{
++    public class EncodingHelperTests
++    {
++        private readonly Mock<IMediaEncoder> _mediaEncoderMock;
++
++        public EncodingHelperTests()
++        {
++            _mediaEncoderMock = new Mock<IMediaEncoder>(MockBehavior.Loose);
++            _mediaEncoderMock
++                .Setup(m => m.SupportsDecoder(It.Is<string>(d => d.EndsWith("_v4l2m2m", StringComparison.Ordinal))))
++                .Returns(true);
++        }
++
++        private EncodingHelper BuildHelper()
++        {
++            return new EncodingHelper(
++                new Mock<IApplicationPaths>().Object,
++                _mediaEncoderMock.Object,
++                new Mock<ISubtitleEncoder>().Object,
++                new Mock<Microsoft.Extensions.Configuration.IConfiguration>().Object,
++                new Mock<IConfigurationManager>().Object,
++                new Mock<IPathManager>().Object);
++        }
++
++        private static (EncodingJobInfo State, EncodingOptions Options) BuildJob(string videoCodec)
++        {
++            var state = new EncodingJobInfo(TranscodingJobType.Progressive);
++            state.VideoStream = new MediaStream
++            {
++                Codec = videoCodec,
++                Profile = string.Empty
++            };
++
++            var options = new EncodingOptions
++            {
++                HardwareAccelerationType = HardwareAccelerationType.cix,
++                HardwareDecodingCodecs = new[] { "h264", "hevc", "h265", "vp8", "vp9", "av1", "mpeg2video", "mpeg4", "h263", "vc1" }
++            };
++
++            return (state, options);
++        }
++
++        [Theory]
++        [InlineData("h264", "h264_v4l2m2m")]
++        [InlineData("hevc", "hevc_v4l2m2m")]
++        [InlineData("h265", "hevc_v4l2m2m")]
++        [InlineData("vp8", "vp8_v4l2m2m")]
++        [InlineData("vp9", "vp9_v4l2m2m")]
++        [InlineData("av1", "av1_v4l2m2m")]
++        [InlineData("mpeg2video", "mpeg2_v4l2m2m")]
++        [InlineData("mpeg4", "mpeg4_v4l2m2m")]
++        [InlineData("h263", "h263_v4l2m2m")]
++        public void GetHwaccelType_Cix_ReturnsV4l2m2mDecoder(string videoCodec, string expectedDecoder)
++        {
++            var helper = BuildHelper();
++            var (state, options) = BuildJob(videoCodec);
++
++            var result = helper.GetHwaccelType(state, options, videoCodec, 8, false);
++
++            Assert.Equal(" -c:v " + expectedDecoder, result);
++        }
++
++        [Fact]
++        public void GetHwaccelType_Cix_UnsupportedCodecFallsBackToSoftware()
++        {
++            var helper = BuildHelper();
++            var (state, options) = BuildJob("vc1");
++
++            var result = helper.GetHwaccelType(state, options, "vc1", 8, false);
++
++            Assert.Null(result);
++        }
++
++        [Fact]
++        public void GetHwaccelType_Cix_MissingV4l2m2mDecodersFallsBackToSoftware()
++        {
++            _mediaEncoderMock
++                .Setup(m => m.SupportsDecoder(It.IsAny<string>()))
++                .Returns(false);
++
++            var helper = BuildHelper();
++            var (state, options) = BuildJob("h264");
++
++            var result = helper.GetHwaccelType(state, options, "h264", 8, false);
++
++            Assert.Null(result);
++        }
++    }
++}
+-- 
+2.47.3
+

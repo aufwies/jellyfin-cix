@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+
+jobs:
+  release:
+    name: Build & Push image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install toolchain
+        run: |
+          S=""; [ "$(id -u)" = "0" ] || S="sudo"
+          $S apt-get update -qq
+          $S apt-get install -y -qq git curl ca-certificates podman
+
+      - name: Clone
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git clone --depth 1 --branch "$GITHUB_REF_NAME" \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@${GITHUB_SERVER_URL#https://}/$GITHUB_REPOSITORY.git" .
+          git submodule update --init
+
+      - name: Apply patches & publish
+        run: |
+          cd jellyfin
+          UPSTREAM_TAG=$(git describe --tags --abbrev=0)
+          git checkout -q "$UPSTREAM_TAG"
+          for p in ../patches/*.patch; do
+            git am --committer-date-is-author-date "$p" || exit 1
+          done
+          cd ..
+          if ! command -v dotnet >/dev/null; then
+            curl -fsSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 9.0 --install-dir "$HOME/.dotnet"
+          fi
+          export PATH="$HOME/.dotnet:$PATH"
+          dotnet publish jellyfin/Jellyfin.Server/Jellyfin.Server.csproj -c Release -o publish
+
+      - name: Build image
+        run: |
+          export PATH="/usr/local/bin:$PATH"
+          TAG="${GITHUB_REF_NAME#v}"
+          podman build --layers=false \
+            --build-arg BASE_REGISTRY="${BASE_REGISTRY:-docker.m.daocloud.io}" \
+            -t "jellyfin-cix:${TAG}" .
+
+      - name: Push to Forgejo registry
+        if: ${{ env.GITHUB_SERVER_URL != 'https://github.com' }}
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          REGISTRY_HOST="${GITHUB_SERVER_URL#https://}"
+          podman login "$REGISTRY_HOST" -u rgan -p "${{ secrets.PUBLISH_TOKEN }}"
+          podman tag "jellyfin-cix:${TAG}" "$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}"
+          podman push "$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}"

@@ -1,0 +1,64 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+
+jobs:
+  build:
+    name: Build image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install toolchain
+        run: |
+          S=""; [ "$(id -u)" = "0" ] || S="sudo"
+          $S apt-get update -qq
+          $S apt-get install -y -qq git curl ca-certificates
+
+      - name: Clone
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git clone --depth 1 \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@${GITHUB_SERVER_URL#https://}/$GITHUB_REPOSITORY.git" .
+          git submodule update --init
+
+      - name: Apply patches
+        run: |
+          cd jellyfin
+          UPSTREAM_TAG=$(git describe --tags --abbrev=0)
+          git checkout -q "$UPSTREAM_TAG"
+          for p in ../patches/*.patch; do
+            git am --committer-date-is-author-date "$p" \
+              || { echo "补丁失败: $p"; git am --abort; exit 1; }
+          done
+
+      - name: dotnet publish
+        run: |
+          if ! command -v dotnet >/dev/null; then
+            curl -fsSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 9.0 --install-dir "$HOME/.dotnet"
+          fi
+          export PATH="$HOME/.dotnet:$PATH"
+          dotnet publish jellyfin/Jellyfin.Server/Jellyfin.Server.csproj -c Release -o publish
+
+      - name: Build image
+        run: |
+          command -v podman >/dev/null || { S=""; [ "$(id -u)" = "0" ] || S="sudo"; $S apt-get install -y -qq podman; }
+          export PATH="/usr/local/bin:$PATH"
+          UPSTREAM_TAG=$(cd jellyfin && git describe --tags --abbrev=0 | sed 's/^v//')
+          TAG="${UPSTREAM_TAG}-cix.1"
+          podman build --layers=false \
+            --build-arg BASE_REGISTRY="${BASE_REGISTRY:-docker.m.daocloud.io}" \
+            -t "jellyfin-cix:${TAG}" .
+
+      - name: Push to registry (internal only)
+        if: ${{ env.GITHUB_SERVER_URL != 'https://github.com' }}
+        run: |
+          UPSTREAM_TAG=$(cd jellyfin && git describe --tags --abbrev=0 | sed 's/^v//')
+          TAG="${UPSTREAM_TAG}-cix.1"
+          REGISTRY_HOST="${GITHUB_SERVER_URL#https://}"
+          podman login "$REGISTRY_HOST" -u rgan -p "${{ secrets.PUBLISH_TOKEN }}"
+          podman tag "jellyfin-cix:${TAG}" "$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}"
+          podman push "$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}"
