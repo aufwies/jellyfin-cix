@@ -28,6 +28,9 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git clone --depth 1 --branch "$GITHUB_REF_NAME" \
             "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@${GITHUB_SERVER_URL#https://}/$GITHUB_REPOSITORY.git" .
+          if [ -n "${JELLYFIN_MIRROR_URL:-}" ]; then
+            git config submodule.jellyfin.url "$JELLYFIN_MIRROR_URL"
+          fi
           git submodule update --init
 
       - name: Apply patches & publish

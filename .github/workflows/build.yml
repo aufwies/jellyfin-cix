@@ -20,11 +20,15 @@ jobs:
           $S apt-get update -qq
           $S apt-get install -y -qq git curl ca-certificates
 
+
       - name: Clone
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git clone --depth 1 \
             "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@${GITHUB_SERVER_URL#https://}/$GITHUB_REPOSITORY.git" .
+          if [ -n "${JELLYFIN_MIRROR_URL:-}" ]; then
+            git config submodule.jellyfin.url "$JELLYFIN_MIRROR_URL"
+          fi
           git submodule update --init
 
       - name: Apply patches
