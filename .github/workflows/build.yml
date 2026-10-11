@@ -53,13 +53,19 @@ jobs:
 
       - name: Apply patches
         run: |
-          cd jellyfin
-          UPSTREAM_TAG=$(git describe --tags --abbrev=0)
-          git checkout -q "$UPSTREAM_TAG"
-          for p in ../patches/*.patch; do
-            git am --committer-date-is-author-date "$p" \
-              || { echo "补丁失败: $p"; git am --abort; exit 1; }
-          done
+          set -o pipefail
+          {
+            git config --global user.name "CI"
+            git config --global user.email "ci@localhost"
+            cd jellyfin
+            UPSTREAM_TAG=$(git describe --tags --abbrev=0)
+            git checkout -q "$UPSTREAM_TAG"
+            for p in ../patches/*.patch; do
+              git am --committer-date-is-author-date "$p" \
+                || { echo "补丁失败: $p"; git am --abort; exit 1; }
+            done
+            echo "补丁应用成功"
+          } 2>&1 | tee -a "$CI_LOG"
 
       - name: Compile (SDK 容器)
         run: |
