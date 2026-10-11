@@ -64,16 +64,9 @@ jobs:
             export PATH="$HOME/.dotnet:$PATH"
             dotnet --version
 
-            # NuGet 源
-            cat > jellyfin/nuget.config <<EOF
-            <?xml version="1.0" encoding="utf-8"?>
-            <configuration>
-              <packageSources>
-                <clear />
-                <add key="mirror" value="${NUGET_SOURCE}" />
-              </packageSources>
-            </configuration>
-            EOF
+            # NuGet 源 (printf 避免 heredoc 缩进问题)
+            printf '<?xml version="1.0" encoding="utf-8"?>\n<configuration>\n  <packageSources>\n    <clear />\n    <add key="mirror" value="%s" />\n  </packageSources>\n</configuration>\n' \
+              "${NUGET_SOURCE}" > jellyfin/nuget.config
 
             # 编译
             cd jellyfin
