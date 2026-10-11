@@ -1,60 +1,114 @@
 name: Build
-true:
-  pull_request: null
+
+on:
   push:
-    branches:
-    - main
+    branches: [main]
+  pull_request:
+
 env:
   CI_LOG: /tmp/ci-debug.log
+
 jobs:
   build:
     name: Build image
     runs-on: ubuntu-latest
     steps:
-    - name: Install toolchain
-      run: "S=\"\"; [ \"$(id -u)\" = \"0\" ] || S=\"sudo\"\n{\n  $S apt-get update\
-        \ -qq\n  $S apt-get install -y -qq git curl patch podman\n} 2>&1 | tee -a\
-        \ \"$CI_LOG\"\n"
-    - name: Clone
-      run: "set -o pipefail\n{\n  git config --global --add safe.directory \"$GITHUB_WORKSPACE\"\
-        \n  git clone --depth 1 \\\n    \"https://x-access-token:${{ secrets.GITHUB_TOKEN\
-        \ }}@${GITHUB_SERVER_URL#https://}/$GITHUB_REPOSITORY.git\" .\n  if [ -n \"\
-        ${JELLYFIN_MIRROR_URL:-}\" ]; then\n    git config submodule.jellyfin.url\
-        \ \"$JELLYFIN_MIRROR_URL\"\n  fi\n  git config --global url.\"https://rgan:${{\
-        \ secrets.JELLYFIN_MIRROR_TOKEN }}@${GITHUB_SERVER_URL#https://}/\".insteadOf\
-        \ \"${GITHUB_SERVER_URL}/\"\n  git submodule update --init\n} 2>&1 | tee -a\
-        \ \"$CI_LOG\"\n"
-    - name: Apply patches
-      run: "set -o pipefail\n{\n  git config --global user.name \"CI\"\n  git config\
-        \ --global user.email \"ci@localhost\"\n  cd jellyfin\n  UPSTREAM_TAG=$(git\
-        \ describe --tags --abbrev=0)\n  git checkout -q \"$UPSTREAM_TAG\"\n  for\
-        \ p in ../patches/*.patch; do\n    git am --committer-date-is-author-date\
-        \ \"$p\" \\\n      || { echo \"补丁失败: $p\"; git am --abort; exit 1; }\n  done\n\
-        \  echo \"补丁应用成功\"\n} 2>&1 | tee -a \"$CI_LOG\"\n"
-    - name: Compile (SDK 容器)
-      run: "cat > /tmp/nuget.config <<NESTED\n<?xml version=\"1.0\" encoding=\"utf-8\"\
-        ?>\n<configuration>\n  <packageSources>\n    <clear />\n    <add key=\"mirror\"\
-        \ value=\"${NUGET_SOURCE}\" />\n  </packageSources>\n</configuration>\nNESTED\n\
-        cp /tmp/nuget.config jellyfin/nuget.config\n\npodman run --rm --network=host\
-        \ \\\n  -v \"$PWD/jellyfin:/src\" \\\n  -v \"$PWD/publish:/out\" \\\n  -w\
-        \ /src \\\n  \"${SDK_IMAGE}\" \\\n  dotnet publish Jellyfin.Server/Jellyfin.Server.csproj\
-        \ \\\n    -c Release -o /out \\\n    -p:UseAppHost=false\n"
-    - name: Build image
-      run: "export PATH=\"/usr/local/bin:$PATH\"\nUPSTREAM_TAG=$(cd jellyfin && git\
-        \ describe --tags --abbrev=0 | sed 's/^v//')\nTAG=\"${UPSTREAM_TAG}-cix.1\"\
-        \npodman build --layers=false \\\n  --build-arg BASE_IMAGE=\"${BASE_IMAGE}\"\
-        \ \\\n  -t \"jellyfin-cix:${TAG}\" .\n"
-    - name: Push (internal only)
-      run: "if [[ \"$GITHUB_SERVER_URL\" == *github.com* ]]; then\n  echo \"GitHub\
-        \ 环境, 跳过内部推送\"\n  exit 0\nfi\nUPSTREAM_TAG=$(cd jellyfin && git describe --tags\
-        \ --abbrev=0 | sed 's/^v//')\nTAG=\"${UPSTREAM_TAG}-cix.1\"\nREGISTRY_HOST=\"\
-        ${GITHUB_SERVER_URL#https://}\"\npodman login \"$REGISTRY_HOST\" -u rgan -p\
-        \ \"${{ secrets.JELLYFIN_MIRROR_TOKEN }}\"\npodman tag \"jellyfin-cix:${TAG}\"\
-        \ \"$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}\"\npodman push \"$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}\"\
-        \n"
-    - if: always()
-      name: Upload debug log
-      run: "if [[ \"$GITHUB_SERVER_URL\" != *github.com* ]]; then\n  curl -sS --user\
-        \ \"rgan:${{ secrets.JELLYFIN_MIRROR_TOKEN }}\" \\\n    --upload-file \"$CI_LOG\"\
-        \ \\\n    \"$GITHUB_SERVER_URL/api/packages/rgan/generic/jellyfin-cix-debug/${{\
-        \ github.run_id }}/ci.log\" \\\n    || echo \"日志上传失败\"\nfi\n"
+      - name: Install toolchain
+        run: |
+          S=""; [ "$(id -u)" = "0" ] || S="sudo"
+          {
+            $S apt-get update -qq
+            $S apt-get install -y -qq git curl patch podman
+          } 2>&1 | tee -a "$CI_LOG"
+
+      - name: Clone
+        run: |
+          set -o pipefail
+          {
+            git config --global --add safe.directory "$GITHUB_WORKSPACE"
+            git clone --depth 1 \
+              "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@${GITHUB_SERVER_URL#https://}/$GITHUB_REPOSITORY.git" .
+            if [ -n "${JELLYFIN_MIRROR_URL:-}" ]; then
+              git config submodule.jellyfin.url "$JELLYFIN_MIRROR_URL"
+            fi
+            git config --global url."https://rgan:${{ secrets.JELLYFIN_MIRROR_TOKEN }}@${GITHUB_SERVER_URL#https://}/".insteadOf "${GITHUB_SERVER_URL}/"
+            git submodule update --init
+          } 2>&1 | tee -a "$CI_LOG"
+
+      - name: Apply patches
+        run: |
+          set -o pipefail
+          {
+            git config --global user.name "CI"
+            git config --global user.email "ci@localhost"
+            cd jellyfin
+            UPSTREAM_TAG=$(git describe --tags --abbrev=0)
+            git checkout -q "$UPSTREAM_TAG"
+            for p in ../patches/*.patch; do
+              git am --committer-date-is-author-date "$p" \
+                || { echo "补丁失败: $p"; git am --abort; exit 1; }
+            done
+            echo "补丁应用成功"
+          } 2>&1 | tee -a "$CI_LOG"
+
+      - name: Compile
+        run: |
+          set -o pipefail
+          {
+            mkdir -p publish
+            cat > jellyfin/nuget.config <<EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="mirror" value="${NUGET_SOURCE}" />
+            </packageSources>
+          </configuration>
+          EOF
+            podman run --rm --network=host \
+              -v "$PWD/jellyfin:/src" \
+              -v "$PWD/publish:/out" \
+              -w /src \
+              "${SDK_IMAGE}" \
+              dotnet publish Jellyfin.Server/Jellyfin.Server.csproj \
+                -c Release -o /out \
+                -p:UseAppHost=false
+          } 2>&1 | tee -a "$CI_LOG"
+
+      - name: Build image
+        run: |
+          set -o pipefail
+          {
+            export PATH="/usr/local/bin:$PATH"
+            UPSTREAM_TAG=$(cd jellyfin && git describe --tags --abbrev=0 | sed 's/^v//')
+            TAG="${UPSTREAM_TAG}-cix.1"
+            podman build --layers=false \
+              --build-arg BASE_IMAGE="${BASE_IMAGE}" \
+              -t "jellyfin-cix:${TAG}" .
+          } 2>&1 | tee -a "$CI_LOG"
+
+      - name: Push
+        run: |
+          set -o pipefail
+          {
+            if [[ "$GITHUB_SERVER_URL" == *github.com* ]]; then
+              echo "GitHub 环境, 跳过内部推送"
+              exit 0
+            fi
+            UPSTREAM_TAG=$(cd jellyfin && git describe --tags --abbrev=0 | sed 's/^v//')
+            TAG="${UPSTREAM_TAG}-cix.1"
+            REGISTRY_HOST="${GITHUB_SERVER_URL#https://}"
+            podman login "$REGISTRY_HOST" -u rgan -p "${{ secrets.JELLYFIN_MIRROR_TOKEN }}"
+            podman tag "jellyfin-cix:${TAG}" "$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}"
+            podman push "$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}"
+          } 2>&1 | tee -a "$CI_LOG"
+
+      - name: Upload debug log
+        if: always()
+        run: |
+          if [[ "$GITHUB_SERVER_URL" != *github.com* ]]; then
+            curl -sS --user "rgan:${{ secrets.JELLYFIN_MIRROR_TOKEN }}" \
+              --upload-file "$CI_LOG" \
+              "$GITHUB_SERVER_URL/api/packages/rgan/generic/jellyfin-cix-debug/${{ github.run_id }}/ci.log" \
+              || echo "日志上传失败"
+          fi
