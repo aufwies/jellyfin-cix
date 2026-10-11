@@ -10,11 +10,13 @@
 # --- Stage 1: 编译 ---
 # 内部: Forgejo 容器仓库的 SDK 镜像; GitHub: --build-arg SDK_IMAGE=mcr.microsoft.com/dotnet/sdk:9.0
 ARG SDK_IMAGE=git.example.com/rgan/dotnet-sdk:9.0
+ARG BASE_REGISTRY=docker.m.daocloud.io
 FROM ${SDK_IMAGE} AS build
 
-# 复制上游源码 + CIX 补丁
+# 复制上游源码 + CIX 补丁 + NuGet 镜像源
 COPY jellyfin/ /src
 COPY patches/ /patches
+COPY nuget.config /src/nuget.config
 
 # 应用补丁并编译
 RUN cd /src && \
@@ -24,7 +26,7 @@ RUN cd /src && \
         -p:UseAppHost=false
 
 # --- Stage 2: 运行时 ---
-ARG BASE_REGISTRY=docker.io
+ARG BASE_REGISTRY
 FROM ${BASE_REGISTRY}/jellyfin/jellyfin:10.11.11
 
 # CIX 专有二进制（deb 解包）
