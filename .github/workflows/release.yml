@@ -5,9 +5,6 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: write
-
 jobs:
   release:
     name: Build & Push image
@@ -17,7 +14,7 @@ jobs:
         run: |
           S=""; [ "$(id -u)" = "0" ] || S="sudo"
           $S apt-get update -qq
-          $S apt-get install -y -qq git curl ca-certificates
+          $S apt-get install -y -qq git curl patch podman
 
       - name: Clone
         run: |
@@ -27,32 +24,53 @@ jobs:
           if [ -n "${JELLYFIN_MIRROR_URL:-}" ]; then
             git config submodule.jellyfin.url "$JELLYFIN_MIRROR_URL"
           fi
-          if [[ "$GITHUB_SERVER_URL" != *github.com* ]]; then
-            git config --global url."https://rgan:${{ secrets.PUBLISH_TOKEN }}@${GITHUB_SERVER_URL#https://}/".insteadOf "${GITHUB_SERVER_URL}/"
-          fi
           git submodule update --init
+
+      - name: Apply patches
+        run: |
+          cd jellyfin
+          UPSTREAM_TAG=$(git describe --tags --abbrev=0)
+          git checkout -q "$UPSTREAM_TAG"
+          for p in ../patches/*.patch; do
+            git am --committer-date-is-author-date "$p" \
+              || { echo "补丁失败: $p"; git am --abort; exit 1; }
+          done
+
+      - name: Compile (SDK 容器)
+        run: |
+          cat > /tmp/nuget.config <<NESTED
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="mirror" value="${NUGET_SOURCE}" />
+            </packageSources>
+          </configuration>
+          NESTED
+          cp /tmp/nuget.config jellyfin/nuget.config
+
+          podman run --rm \
+            -v "$PWD/jellyfin:/src" \
+            -v "$PWD/publish:/out" \
+            -w /src \
+            "${SDK_IMAGE}" \
+            dotnet publish Jellyfin.Server/Jellyfin.Server.csproj \
+              -c Release -o /out \
+              -p:UseAppHost=false
 
       - name: Build image
         run: |
-          if command -v docker >/dev/null; then OCI=docker; else OCI=podman; fi
+          export PATH="/usr/local/bin:$PATH"
           TAG="${GITHUB_REF_NAME#v}"
-
-          if [[ "$GITHUB_SERVER_URL" != *github.com* ]]; then
-            export BASE_REGISTRY=docker.m.daocloud.io
-          fi
-
-          $OCI build \
-            --build-arg BASE_REGISTRY="${BASE_REGISTRY:-docker.io}" \
+          podman build --layers=false \
+            --build-arg BASE_IMAGE="${BASE_IMAGE}" \
             -t "jellyfin-cix:${TAG}" .
 
-      - name: Push to Forgejo registry
+      - name: Push (internal only)
         run: |
           if [[ "$GITHUB_SERVER_URL" == *github.com* ]]; then
             echo "GitHub 环境, 跳过"
             exit 0
-          fi
-          if ! command -v podman >/dev/null; then
-            S=""; [ "$(id -u)" = "0" ] || S="sudo"; $S apt-get install -y -qq podman
           fi
           TAG="${GITHUB_REF_NAME#v}"
           REGISTRY_HOST="${GITHUB_SERVER_URL#https://}"

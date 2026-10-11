@@ -1,33 +1,15 @@
 # ============================================================
-# jellyfin-cix 多阶段构建
+# jellyfin-cix 运行时镜像（纯组装，无编译）
 #
-# Stage 1: 用 dotnet SDK 容器编译打补丁后的 Jellyfin
-# Stage 2: 用官方 jellyfin 镜像 + CIX deb 组装运行时
+# 编译在 CI 步骤中用 SDK 容器完成（见 .github/workflows/）
+# 本 Dockerfile 只做: CIX deb 解包 + apt 依赖 + DLL 覆盖
 #
-# 构建前提: 构建上下文中 jellyfin/ 目录包含上游源码(submodule)
+# 必需环境变量:
+#   BASE_IMAGE  - jellyfin 基础镜像 (如 docker.m.daocloud.io/jellyfin/jellyfin:10.11.11)
 # ============================================================
 
-# --- Stage 1: 编译 ---
-# 内部: Forgejo 容器仓库的 SDK 镜像; GitHub: --build-arg SDK_IMAGE=mcr.microsoft.com/dotnet/sdk:9.0
-ARG SDK_IMAGE=git.example.com/rgan/dotnet-sdk:9.0
-ARG BASE_REGISTRY=docker.m.daocloud.io
-FROM ${SDK_IMAGE} AS build
-
-# 复制上游源码 + CIX 补丁 + NuGet 镜像源
-COPY jellyfin/ /src
-COPY patches/ /patches
-COPY nuget.config /src/nuget.config
-
-# 应用补丁并编译
-RUN cd /src && \
-    cat /patches/*.patch | patch -p1 && \
-    dotnet publish Jellyfin.Server/Jellyfin.Server.csproj \
-        -c Release -o /out \
-        -p:UseAppHost=false
-
-# --- Stage 2: 运行时 ---
-ARG BASE_REGISTRY
-FROM ${BASE_REGISTRY}/jellyfin/jellyfin:10.11.11
+ARG BASE_IMAGE=docker.io/jellyfin/jellyfin:10.11.11
+FROM ${BASE_IMAGE}
 
 # CIX 专有二进制（deb 解包）
 COPY debs/ /tmp/cix-debs/
@@ -56,8 +38,8 @@ RUN rm -f /usr/lib/aarch64-linux-gnu/libavcodec.so.61* \
 # ld.so.conf 指向 CIX 库
 RUN echo "/usr/share/cix/lib" > /etc/ld.so.conf.d/cix.conf && ldconfig
 
-# 从编译阶段拿 DLL
-COPY --from=build /out/MediaBrowser.Controller.dll /out/MediaBrowser.Model.dll /jellyfin/
+# CIX 补丁编译的 Jellyfin DLL（CI 编译步骤产出）
+COPY publish/ /jellyfin/
 
 ENV JELLYFIN_FFMPEG=/usr/share/cix/bin/ffmpeg
 
