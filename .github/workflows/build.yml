@@ -7,6 +7,10 @@ on:
 
 env:
   CI_LOG: /tmp/ci-debug.log
+  NUGET_SOURCE: ${{ vars.NUGET_SOURCE }}
+  SDK_IMAGE: ${{ vars.SDK_IMAGE }}
+  BASE_IMAGE: ${{ vars.BASE_IMAGE }}
+  JELLYFIN_MIRROR_URL: ${{ vars.JELLYFIN_MIRROR_URL }}
 
 jobs:
   build:
