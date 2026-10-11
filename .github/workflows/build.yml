@@ -59,7 +59,7 @@ jobs:
           NESTED
           cp /tmp/nuget.config jellyfin/nuget.config
 
-          podman run --rm \
+          podman run --rm --network=host \
             -v "$PWD/jellyfin:/src" \
             -v "$PWD/publish:/out" \
             -w /src \
