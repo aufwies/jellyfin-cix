@@ -55,24 +55,33 @@ jobs:
         run: |
           set -o pipefail
           {
-            mkdir -p publish
+            # 从 Forgejo Generic 拉 .NET SDK (内网, 不需要容器)
+            curl -sS --user "rgan:${{ secrets.JELLYFIN_MIRROR_TOKEN }}" \
+              -o /tmp/dotnet-sdk.tar.gz \
+              "$GITHUB_SERVER_URL/api/packages/rgan/generic/dotnet-sdk/9.0.318/dotnet-sdk-9.0.318-linux-arm64.tar.gz"
+            mkdir -p "$HOME/.dotnet"
+            tar -xzf /tmp/dotnet-sdk.tar.gz -C "$HOME/.dotnet"
+            export PATH="$HOME/.dotnet:$PATH"
+            dotnet --version
+
+            # NuGet 源
             cat > jellyfin/nuget.config <<EOF
-          <?xml version="1.0" encoding="utf-8"?>
-          <configuration>
-            <packageSources>
-              <clear />
-              <add key="mirror" value="${NUGET_SOURCE}" />
-            </packageSources>
-          </configuration>
-          EOF
-            podman run --rm --network=host \
-              -v "$PWD/jellyfin:/src" \
-              -v "$PWD/publish:/out" \
-              -w /src \
-              "${SDK_IMAGE}" \
-              dotnet publish Jellyfin.Server/Jellyfin.Server.csproj \
-                -c Release -o /out \
-                -p:UseAppHost=false
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="mirror" value="${NUGET_SOURCE}" />
+              </packageSources>
+            </configuration>
+            EOF
+
+            # 编译
+            cd jellyfin
+            dotnet publish Jellyfin.Server/Jellyfin.Server.csproj \
+              -c Release -o ../publish \
+              -p:UseAppHost=false
+            echo "编译完成"
+            ls -la ../publish/MediaBrowser.*.dll
           } 2>&1 | tee -a "$CI_LOG"
 
       - name: Build image
