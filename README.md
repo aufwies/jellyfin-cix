@@ -3,6 +3,15 @@
 独立发布项目：submodule 跟踪上游 Jellyfin + CIX 代码补丁 + CIX 专有二进制 deb，
 构建带 VPU 硬件加速的 Docker 镜像。
 
+## 镜像源映射（USE_MIRROR=true 时）
+
+| 用途 | 直连（默认） | 华为云 mirror |
+|---|---|---|
+| apt | deb.debian.org | repo.huaweicloud.com |
+| NuGet | api.nuget.org | repo.huaweicloud.com |
+| .NET SDK | mcr.microsoft.com/dotnet/sdk | swr.cn-north-4.myhuaweicloud.com/internal-k8s/mcr.microsoft.com/dotnet/sdk |
+| jellyfin base | docker.io/jellyfin/jellyfin（多架构） | docker.m.daocloud.io/jellyfin/jellyfin（多架构，自动选 arm64） |
+
 ## 版本策略（全自动）
 
 - **上游版本**：`update.yml` 每天定时检查 mirror 最新稳定 tag，自动 bump submodule 并 push，
@@ -16,9 +25,10 @@
 
 | 变量 | 用途 | 示例值 |
 |---|---|---|
-| `BASE_IMAGE` | jellyfin 基础镜像 repo（**不含 tag**） | `docker.m.daocloud.io/jellyfin/jellyfin` |
+| `BASE_IMAGE` | jellyfin 基础镜像 repo（**不含 registry/tag**，CI 按 USE_MIRROR 拼前缀 + 版本） | `jellyfin/jellyfin` |
 | `NUGET_SOURCE` | NuGet 包源 | `https://repo.huaweicloud.com/repository/nuget/v3/index.json` |
 | `JELLYFIN_MIRROR_URL` | submodule 源 | `https://git.example.com/mirrors/jellyfin.git` |
+| `USE_MIRROR` | 统一镜像源开关：apt/SDK/base 镜像全部走华为云（默认 `false` 官方源） | `true` |
 
 另需 **Secrets**：
 - `JELLYFIN_MIRROR_TOKEN` — Forgejo 个人 token（clone submodule / registry 推送 / 登录）

@@ -10,6 +10,7 @@ env:
   NUGET_SOURCE: ${{ vars.NUGET_SOURCE }}
   BASE_IMAGE: ${{ vars.BASE_IMAGE }}
   JELLYFIN_MIRROR_URL: ${{ vars.JELLYFIN_MIRROR_URL }}
+  USE_MIRROR: ${{ vars.USE_MIRROR }}
 
 jobs:
   build:
@@ -58,7 +59,11 @@ jobs:
           set -eo pipefail
           # SDK 版本从 jellyfin/global.json 推导 (如 10.0 -> sdk:10.0)
           SDK_VER=$(sed -n 's/.*"version": "\([0-9]*\.[0-9]*\).*/\1/p' jellyfin/global.json)
-          SDK_IMAGE="mcr.microsoft.com/dotnet/sdk:${SDK_VER}"
+          if [ "${USE_MIRROR:-false}" = "true" ]; then
+            SDK_IMAGE="swr.cn-north-4.myhuaweicloud.com/internal-k8s/mcr.microsoft.com/dotnet/sdk:${SDK_VER}"
+          else
+            SDK_IMAGE="mcr.microsoft.com/dotnet/sdk:${SDK_VER}"
+          fi
           echo "使用 $SDK_IMAGE"
           printf '<?xml version="1.0" encoding="utf-8"?>\n<configuration>\n  <packageSources>\n    <clear />\n    <add key="mirror" value="%s" />\n  </packageSources>\n</configuration>\n' \
             "$NUGET_SOURCE" > jellyfin/nuget.config
@@ -80,8 +85,16 @@ jobs:
           set -eo pipefail
           UPSTREAM_TAG=$(cd jellyfin && git describe --tags --abbrev=0 | sed 's/^v//')
           TAG="${UPSTREAM_TAG}-cix"
+          # mirror 模式: daocloud 多架构代理 (自动选 arm64);
+          # 直连模式: docker.io 官方多架构 tag
+          if [ "${USE_MIRROR:-false}" = "true" ]; then
+            BASE_REF="docker.m.daocloud.io/${BASE_IMAGE}:${UPSTREAM_TAG}"
+          else
+            BASE_REF="docker.io/${BASE_IMAGE}:${UPSTREAM_TAG}"
+          fi
           docker build \
-            --build-arg BASE_IMAGE="${BASE_IMAGE}:${UPSTREAM_TAG}" \
+            --build-arg BASE_IMAGE="${BASE_REF}" \
+            --build-arg USE_MIRROR="${USE_MIRROR:-false}" \
             -t "jellyfin-cix:${TAG}" \
             -t "jellyfin-cix:latest" .
 
