@@ -15,3 +15,4 @@ jobs:
           command -v docker
           docker info --format 'server={{.ServerVersion}} driver={{.Driver}}'
 
+
