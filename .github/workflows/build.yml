@@ -49,6 +49,18 @@ jobs:
             echo "补丁应用成功"
           } 2>&1 | tee -a "$CI_LOG"
 
+      - name: Docker login
+        run: |
+          set -eo pipefail
+          {
+            if [[ "$GITHUB_SERVER_URL" == *github.com* ]]; then
+              echo "GitHub 环境, 跳过"
+              exit 0
+            fi
+            echo "${{ secrets.JELLYFIN_MIRROR_TOKEN }}" \
+              | docker login "${GITHUB_SERVER_URL#https://}" -u rgan --password-stdin
+          } 2>&1 | tee -a "$CI_LOG"
+
       - name: Compile
         run: |
           set -eo pipefail
@@ -89,8 +101,6 @@ jobs:
             UPSTREAM_TAG=$(cd jellyfin && git describe --tags --abbrev=0 | sed 's/^v//')
             TAG="${UPSTREAM_TAG}-cix.1"
             REGISTRY_HOST="${GITHUB_SERVER_URL#https://}"
-            echo "${{ secrets.JELLYFIN_MIRROR_TOKEN }}" \
-              | docker login "$REGISTRY_HOST" -u rgan --password-stdin
             docker tag "jellyfin-cix:${TAG}" "$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}"
             docker push "$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}"
           } 2>&1 | tee -a "$CI_LOG"
