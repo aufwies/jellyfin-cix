@@ -85,7 +85,8 @@ jobs:
           docker exec --workdir /src compile \
             dotnet publish Jellyfin.Server/Jellyfin.Server.csproj \
               -c Release -o /out \
-              -p:UseAppHost=false
+              --self-contained true \
+              --runtime linux-arm64
           docker cp compile:/out/. publish/
           ls -la publish/MediaBrowser.Common.dll
 
