@@ -1,1 +1,16 @@
+name: Build
 
+"on":
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: Build image
+    runs-on: docker
+    steps:
+      - name: Socket check
+        run: |
+          command -v docker
+          docker info --format 'server={{.ServerVersion}} driver={{.Driver}}'
