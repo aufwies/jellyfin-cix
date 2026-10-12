@@ -19,8 +19,10 @@ RUN cd /tmp/cix-debs && \
         dpkg -x "$deb" /; \
     done && rm -rf /tmp/cix-debs
 
-# 公共依赖（Debian 公开包）
-RUN apt-get update -qq && \
+# 公共依赖（Debian 公开包, 走内网可达的华为云 mirror）
+RUN sed -i 's|deb.debian.org|repo.huaweicloud.com|g; s|security.debian.org|repo.huaweicloud.com|g' \
+      /etc/apt/sources.list.d/debian.sources \
+    && apt-get update -qq && \
     apt-get install -y --no-install-recommends \
         libavdevice61 libpostproc58 libswresample5 libswscale8 \
         libyuv0 ocl-icd-libopencl1 \
