@@ -16,12 +16,17 @@ env:
 jobs:
   build:
     name: Build image
-    runs-on: ubuntu-latest
+    runs-on: docker
     steps:
       - name: Clone
         run: |
           set -eo pipefail
           {
+            echo "== 环境探测 =="
+            echo "PATH=$PATH"
+            for c in docker git curl patch; do command -v $c || echo "缺: $c"; done
+            docker info --format 'server={{.ServerVersion}} driver={{.Driver}}' || true
+            echo "=="
             git config --global --add safe.directory "$GITHUB_WORKSPACE"
             git clone --depth 1 \
               "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@${GITHUB_SERVER_URL#https://}/$GITHUB_REPOSITORY.git" .
