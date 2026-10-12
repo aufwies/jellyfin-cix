@@ -18,37 +18,6 @@ jobs:
     name: Build image
     runs-on: ubuntu-latest
     steps:
-      - name: Install docker CLI
-        run: |
-          set -eo pipefail
-          {
-            S=""; [ "$(id -u)" = "0" ] || S="sudo"
-            $S apt-get update -qq
-            $S apt-get install -y -qq git curl patch docker.io
-            docker version --format 'client {{.Client.Version}}'
-          } 2>&1 | tee -a "$CI_LOG"
-
-      - name: Start docker daemon (DinD)
-        run: |
-          set -eo pipefail
-          {
-            if docker info >/dev/null 2>&1; then
-              echo "已有 docker daemon, 跳过"
-            else
-              nohup dockerd > /tmp/dockerd.log 2>&1 &
-              for i in $(seq 1 30); do
-                docker info >/dev/null 2>&1 && break
-                sleep 1
-              done
-              if ! docker info >/dev/null 2>&1; then
-                echo "dockerd 启动失败, 日志如下:"
-                tail -50 /tmp/dockerd.log
-                exit 1
-              fi
-            fi
-            echo "dockerd 就绪: $(docker info --format '{{.ServerVersion}}')"
-          } 2>&1 | tee -a "$CI_LOG"
-
       - name: Clone
         run: |
           set -eo pipefail
