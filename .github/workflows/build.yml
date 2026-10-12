@@ -60,7 +60,8 @@ jobs:
           # SDK 版本从 jellyfin/global.json 推导 (如 10.0 -> sdk:10.0)
           SDK_VER=$(sed -n 's/.*"version": "\([0-9]*\.[0-9]*\).*/\1/p' jellyfin/global.json)
           if [ "${USE_MIRROR:-false}" = "true" ]; then
-            SDK_IMAGE="swr.cn-north-4.myhuaweicloud.com/internal-k8s/mcr.microsoft.com/dotnet/sdk:${SDK_VER}"
+            # 内网 registry 的 arm64 SDK (internal-k8s 的 mcr 代理仅缓存 amd64)
+            SDK_IMAGE="${GITHUB_SERVER_URL#https://}/rgan/dotnet-sdk:${SDK_VER}"
           else
             SDK_IMAGE="mcr.microsoft.com/dotnet/sdk:${SDK_VER}"
           fi

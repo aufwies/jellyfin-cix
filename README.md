@@ -9,7 +9,7 @@
 |---|---|---|
 | apt | deb.debian.org | repo.huaweicloud.com |
 | NuGet | api.nuget.org | repo.huaweicloud.com |
-| .NET SDK | mcr.microsoft.com/dotnet/sdk | swr.cn-north-4.myhuaweicloud.com/internal-k8s/mcr.microsoft.com/dotnet/sdk |
+| .NET SDK | mcr.microsoft.com/dotnet/sdk | 内网 registry `git.example.com/rgan/dotnet-sdk`（arm64；internal-k8s 的 mcr 代理仅缓存 amd64） |
 | jellyfin base | docker.io/jellyfin/jellyfin（多架构） | docker.m.daocloud.io/jellyfin/jellyfin（多架构，自动选 arm64） |
 
 ## 版本策略（全自动）
