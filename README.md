@@ -43,7 +43,7 @@
 ├── build.sh            # 本地构建入口
 ├── sync-from-fork.sh   # 从开发 fork 同步补丁
 └── .github/workflows/
-    ├── build.yml       # push → 编译 + 构建镜像 + 推送
+    ├── build.yml       # push/tag → 编译 + 构建镜像 + 推送 (ghcr.io / 内网 registry 自适应)
     └── update.yml      # 每日检查上游, 自动 bump submodule
 ```
 

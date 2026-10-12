@@ -3,7 +3,14 @@ name: Build
 "on":
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
+  workflow_dispatch: {}
+
+# GitHub 上推送 ghcr.io 需要 packages: write
+permissions:
+  contents: read
+  packages: write
 
 # Forgejo Variables 不自动注入 shell, 统一映射到 env
 env:
@@ -48,11 +55,12 @@ jobs:
         run: |
           set -eo pipefail
           if [[ "$GITHUB_SERVER_URL" == *github.com* ]]; then
-            echo "GitHub 环境, 跳过"
-            exit 0
+            echo "${{ secrets.GITHUB_TOKEN }}" \
+              | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          else
+            echo "${{ secrets.JELLYFIN_MIRROR_TOKEN }}" \
+              | docker login "${GITHUB_SERVER_URL#https://}" -u rgan --password-stdin
           fi
-          echo "${{ secrets.JELLYFIN_MIRROR_TOKEN }}" \
-            | docker login "${GITHUB_SERVER_URL#https://}" -u rgan --password-stdin
 
       - name: Compile
         run: |
@@ -84,8 +92,13 @@ jobs:
       - name: Build image
         run: |
           set -eo pipefail
+          # 上游版本永远从 submodule 取; 镜像 tag: v* 触发用发布 tag 名, 否则 上游-cix
           UPSTREAM_TAG=$(cd jellyfin && git describe --tags --abbrev=0 | sed 's/^v//')
-          TAG="${UPSTREAM_TAG}-cix"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF##*/}"; TAG="${TAG#v}"
+          else
+            TAG="${UPSTREAM_TAG}-cix"
+          fi
           # mirror 模式: daocloud 多架构代理 (自动选 arm64);
           # 直连模式: docker.io 官方多架构 tag
           if [ "${USE_MIRROR:-false}" = "true" ]; then
@@ -102,14 +115,20 @@ jobs:
       - name: Push
         run: |
           set -eo pipefail
-          if [[ "$GITHUB_SERVER_URL" == *github.com* ]]; then
-            echo "GitHub 环境, 跳过内部推送"
-            exit 0
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF##*/}"; TAG="${TAG#v}"
+          else
+            UPSTREAM_TAG=$(cd jellyfin && git describe --tags --abbrev=0 | sed 's/^v//')
+            TAG="${UPSTREAM_TAG}-cix"
           fi
-          UPSTREAM_TAG=$(cd jellyfin && git describe --tags --abbrev=0 | sed 's/^v//')
-          TAG="${UPSTREAM_TAG}-cix"
-          REGISTRY_HOST="${GITHUB_SERVER_URL#https://}"
-          docker tag "jellyfin-cix:${TAG}" "$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}"
-          docker tag "jellyfin-cix:latest" "$REGISTRY_HOST/rgan/jellyfin-cix:latest"
-          docker push "$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}"
-          docker push "$REGISTRY_HOST/rgan/jellyfin-cix:latest"
+          # GitHub -> ghcr.io; Forgejo -> 内网 registry
+          if [[ "$GITHUB_SERVER_URL" == *github.com* ]]; then
+            OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+            IMAGE_REF="ghcr.io/${OWNER}/jellyfin-cix"
+          else
+            IMAGE_REF="${GITHUB_SERVER_URL#https://}/rgan/jellyfin-cix"
+          fi
+          docker tag "jellyfin-cix:${TAG}" "$IMAGE_REF:${TAG}"
+          docker tag "jellyfin-cix:latest" "$IMAGE_REF:latest"
+          docker push "$IMAGE_REF:${TAG}"
+          docker push "$IMAGE_REF:latest"

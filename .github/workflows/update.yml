@@ -4,6 +4,7 @@ name: Update upstream
 "on":
   schedule:
     - cron: "0 3 * * *"
+  workflow_dispatch: {}
 
 env:
   JELLYFIN_MIRROR_URL: ${{ vars.JELLYFIN_MIRROR_URL }}
