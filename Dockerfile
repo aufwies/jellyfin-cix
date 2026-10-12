@@ -19,9 +19,12 @@ RUN cd /tmp/cix-debs && \
         dpkg -x "$deb" /; \
     done && rm -rf /tmp/cix-debs
 
-# 公共依赖（Debian 公开包, 走内网可达的华为云 mirror）
-RUN sed -i 's|deb.debian.org|repo.huaweicloud.com|g; s|security.debian.org|repo.huaweicloud.com|g' \
-      /etc/apt/sources.list.d/debian.sources \
+# 公共依赖（Debian 公开包; USE_MIRROR=true 时 apt 改走华为云镜像源, 默认官方源）
+ARG USE_MIRROR=false
+RUN if [ "${USE_MIRROR}" = "true" ]; then \
+      sed -i 's|deb.debian.org|repo.huaweicloud.com|g; s|security.debian.org|repo.huaweicloud.com|g' \
+        /etc/apt/sources.list.d/debian.sources; \
+    fi \
     && apt-get update -qq && \
     apt-get install -y --no-install-recommends \
         libavdevice61 libpostproc58 libswresample5 libswscale8 \
