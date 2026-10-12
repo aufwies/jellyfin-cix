@@ -8,7 +8,7 @@ name: Build
 jobs:
   build:
     name: Build image
-    runs-on: docker
+    runs-on: ubuntu-latest
     steps:
       - name: Socket check
         run: |
