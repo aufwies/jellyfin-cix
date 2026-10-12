@@ -43,8 +43,14 @@ RUN rm -f /usr/lib/aarch64-linux-gnu/libavcodec.so.61* \
 # ld.so.conf 指向 CIX 库
 RUN echo "/usr/share/cix/lib" > /etc/ld.so.conf.d/cix.conf && ldconfig
 
-# CIX 补丁编译的 Jellyfin DLL（CI 编译步骤产出）
+# CIX 补丁编译的 Jellyfin DLL（CI 编译步骤产出, self-contained 含运行时）
 COPY publish/ /jellyfin/
+
+# jellyfin-web 硬件加速下拉是前端硬编码, 后端枚举加了也不会显示; 注入 CIX VPU 选项
+RUN set -e; f=$(ls /jellyfin/jellyfin-web/playback-transcoding.*.chunk.js); \
+    sed -i 's|\((0,[a-z]*\.jsx)\)(\([A-Za-z]*\.[A-Za-z]*,\){value:"videotoolbox",children:"Apple VideoToolBox"})|\1(\2{value:"videotoolbox",children:"Apple VideoToolBox"}),\1(\2{value:"cix",children:"CIX VPU"})|' "$f" && \
+    grep -q 'value:"cix"' "$f" && \
+    echo "web 已注入 CIX VPU 选项: $f"
 
 ENV JELLYFIN_FFMPEG=/usr/share/cix/bin/ffmpeg
 
