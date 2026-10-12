@@ -68,13 +68,16 @@ jobs:
             printf '<?xml version="1.0" encoding="utf-8"?>\n<configuration>\n  <packageSources>\n    <clear />\n    <add key="mirror" value="%s" />\n  </packageSources>\n</configuration>\n' \
               "$NUGET_SOURCE" > jellyfin/nuget.config
             mkdir -p publish
-            docker run --rm \
-              -v "$PWD/jellyfin:/src" -w /src \
-              -v "$PWD/publish:/out" \
-              "$SDK_IMAGE" \
+            # dind daemon 看不见 job 容器的 bind mount, 源码/产物改走 docker cp (API 传输)
+            docker run -d --name compile --workdir /src "$SDK_IMAGE" sleep infinity
+            trap 'docker rm -f compile >/dev/null 2>&1 || true' EXIT
+            docker exec compile mkdir -p /src /out
+            tar -C jellyfin --exclude=.git -cf - . | docker cp - compile:/src
+            docker exec --workdir /src compile \
               dotnet publish Jellyfin.Server/Jellyfin.Server.csproj \
                 -c Release -o /out \
                 -p:UseAppHost=false
+            docker cp compile:/out/. publish/
             ls -la publish/MediaBrowser.Common.dll
             echo "编译完成"
           } 2>&1 | tee -a "$CI_LOG"
