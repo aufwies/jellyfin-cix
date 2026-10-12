@@ -1,32 +1,40 @@
 # jellyfin-cix — CIX VPU 硬件加速版 Jellyfin
 
-独立发布项目：submodule 钉住上游 Jellyfin + CIX 代码补丁 + CIX 专有二进制 deb，
+独立发布项目：submodule 跟踪上游 Jellyfin + CIX 代码补丁 + CIX 专有二进制 deb，
 构建带 VPU 硬件加速的 Docker 镜像。
 
-## 环境变量（必须配置）
+## 版本策略（全自动）
 
-在 Forgejo 仓库 **Settings → Actions → Variables** 或 runner 环境变量中设置：
+- **上游版本**：`update.yml` 每天定时检查 mirror 最新稳定 tag，自动 bump submodule 并 push，
+  由此触发 Build。升级 Jellyfin 无需任何手工操作。
+- **镜像 tag**：`<上游版本>-cix`（如 `12.2-cix`）+ `latest`，两者都推送。
+- **SDK 版本**：CI 从 `jellyfin/global.json` 推导（如 `10.0` → `mcr.microsoft.com/dotnet/sdk:10.0`），
+  不需要维护。
+- **基础镜像**：`BASE_IMAGE` 只填 repo（不含 tag），CI 自动拼接当前上游版本。
 
-| 变量 | 用途 | 内网示例值 | GitHub 默认 |
-|---|---|---|---|
-| `SDK_IMAGE` | .NET SDK 容器镜像 | `git.example.com/rgan/dotnet-sdk:9.0` | `mcr.microsoft.com/dotnet/sdk:9.0` |
-| `BASE_IMAGE` | jellyfin 基础镜像 | `docker.m.daocloud.io/jellyfin/jellyfin:10.11.11` | `docker.io/jellyfin/jellyfin:10.11.11` |
-| `NUGET_SOURCE` | NuGet 包源 | `https://mirrors.huawei.com/repository/toolkit/nuget/v3/index.json` | `https://api.nuget.org/v3/index.json` |
-| `JELLYFIN_MIRROR_URL` | submodule 源（可选） | `https://git.example.com/mirrors/jellyfin.git` | （默认 .gitmodules） |
+## 环境变量（Forgejo Settings → Actions → Variables）
+
+| 变量 | 用途 | 示例值 |
+|---|---|---|
+| `BASE_IMAGE` | jellyfin 基础镜像 repo（**不含 tag**） | `docker.m.daocloud.io/jellyfin/jellyfin` |
+| `NUGET_SOURCE` | NuGet 包源 | `https://repo.huaweicloud.com/repository/nuget/v3/index.json` |
+| `JELLYFIN_MIRROR_URL` | submodule 源 | `https://git.example.com/mirrors/jellyfin.git` |
 
 另需 **Secrets**：
-- `PUBLISH_TOKEN` — Forgejo 个人 token（推送镜像用）
+- `JELLYFIN_MIRROR_TOKEN` — Forgejo 个人 token（clone submodule / registry 推送 / 登录）
 
 ## 结构
 
 ```
-├── jellyfin/           # submodule → 上游 jellyfin/jellyfin
-├── patches/            # CIX 代码增量（HardwareAccelerationType.cix）
+├── jellyfin/           # submodule → 上游 jellyfin/jellyfin (自动跟踪最新稳定版)
+├── patches/            # CIX 代码增量（git am 应用到上游 tag）
 ├── debs/               # CIX 专有二进制 deb + SHA256SUMS
 ├── Dockerfile          # 运行时组装（无编译阶段）
 ├── build.sh            # 本地构建入口
 ├── sync-from-fork.sh   # 从开发 fork 同步补丁
-└── .github/workflows/  # CI/CD（零硬编码 URL）
+└── .github/workflows/
+    ├── build.yml       # push → 编译 + 构建镜像 + 推送
+    └── update.yml      # 每日检查上游, 自动 bump submodule
 ```
 
 ## 发布流程
@@ -34,17 +42,7 @@
 ```bash
 # 1. 开发仓库(rgan/jellyfin, cix-vpu 分支) coding → 单测 → tag
 # 2. 本仓库同步:
-./sync-from-fork.sh ../jellyfin v10.11.11
+./sync-from-fork.sh ../jellyfin v12.2
 # 3. 提交并 push → CI 自动构建镜像
-git add -A && git commit -m "release X.Y.Z" && git push
+git add -A && git commit -m "release 12.2" && git push
 ```
-
-## CIX SDK 升级
-
-从 cix-mm.tar.gz 提取新 deb 放入 `debs/`，更新 SHA256SUMS。
-
-## 许可
-
-- Jellyfin 衍生代码: GPL-2.0
-- CIX 专有 deb: 保留所有权利
-- 本仓库脚本: SSPL-1.0

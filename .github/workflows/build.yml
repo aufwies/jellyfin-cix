@@ -7,9 +7,7 @@ name: Build
 
 # Forgejo Variables 不自动注入 shell, 统一映射到 env
 env:
-  CI_LOG: /tmp/ci-debug.log
   NUGET_SOURCE: ${{ vars.NUGET_SOURCE }}
-  SDK_IMAGE: ${{ vars.SDK_IMAGE }}
   BASE_IMAGE: ${{ vars.BASE_IMAGE }}
   JELLYFIN_MIRROR_URL: ${{ vars.JELLYFIN_MIRROR_URL }}
 
@@ -23,98 +21,81 @@ jobs:
       - name: Clone
         run: |
           set -eo pipefail
-          {
-            git config --global --add safe.directory "$GITHUB_WORKSPACE"
-            git clone --depth 1 \
-              "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@${GITHUB_SERVER_URL#https://}/$GITHUB_REPOSITORY.git" .
-            if [ -n "${JELLYFIN_MIRROR_URL:-}" ]; then
-              git config submodule.jellyfin.url "$JELLYFIN_MIRROR_URL"
-            fi
-            git config --global url."https://rgan:${{ secrets.JELLYFIN_MIRROR_TOKEN }}@${GITHUB_SERVER_URL#https://}/".insteadOf "${GITHUB_SERVER_URL}/"
-            git submodule update --init
-          } 2>&1 | tee -a "$CI_LOG"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git clone --depth 1 \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@${GITHUB_SERVER_URL#https://}/$GITHUB_REPOSITORY.git" .
+          if [ -n "${JELLYFIN_MIRROR_URL:-}" ]; then
+            git config submodule.jellyfin.url "$JELLYFIN_MIRROR_URL"
+          fi
+          git config --global url."https://rgan:${{ secrets.JELLYFIN_MIRROR_TOKEN }}@${GITHUB_SERVER_URL#https://}/".insteadOf "${GITHUB_SERVER_URL}/"
+          git submodule update --init
 
       - name: Apply patches
         run: |
           set -eo pipefail
-          {
-            git config --global user.name "CI"
-            git config --global user.email "ci@localhost"
-            cd jellyfin
-            git checkout -q "$(git describe --tags --abbrev=0)"
-            for p in ../patches/*.patch; do
-              git am --committer-date-is-author-date "$p" \
-                || { echo "补丁失败: $p"; git am --abort; exit 1; }
-            done
-            echo "补丁应用成功"
-          } 2>&1 | tee -a "$CI_LOG"
+          git config --global user.name "CI"
+          git config --global user.email "ci@localhost"
+          cd jellyfin
+          git checkout -q "$(git describe --tags --abbrev=0)"
+          for p in ../patches/*.patch; do
+            git am --committer-date-is-author-date "$p" \
+              || { echo "补丁失败: $p"; git am --abort; exit 1; }
+          done
+          echo "补丁应用成功"
 
       - name: Docker login
         run: |
           set -eo pipefail
-          {
-            if [[ "$GITHUB_SERVER_URL" == *github.com* ]]; then
-              echo "GitHub 环境, 跳过"
-              exit 0
-            fi
-            echo "${{ secrets.JELLYFIN_MIRROR_TOKEN }}" \
-              | docker login "${GITHUB_SERVER_URL#https://}" -u rgan --password-stdin
-          } 2>&1 | tee -a "$CI_LOG"
+          if [[ "$GITHUB_SERVER_URL" == *github.com* ]]; then
+            echo "GitHub 环境, 跳过"
+            exit 0
+          fi
+          echo "${{ secrets.JELLYFIN_MIRROR_TOKEN }}" \
+            | docker login "${GITHUB_SERVER_URL#https://}" -u rgan --password-stdin
 
       - name: Compile
         run: |
           set -eo pipefail
-          {
-            printf '<?xml version="1.0" encoding="utf-8"?>\n<configuration>\n  <packageSources>\n    <clear />\n    <add key="mirror" value="%s" />\n  </packageSources>\n</configuration>\n' \
-              "$NUGET_SOURCE" > jellyfin/nuget.config
-            mkdir -p publish
-            # dind daemon 看不见 job 容器的 bind mount, 源码/产物改走 docker cp (API 传输)
-            docker run -d --name compile --workdir /src "$SDK_IMAGE" sleep infinity
-            trap 'docker rm -f compile >/dev/null 2>&1 || true' EXIT
-            docker exec compile mkdir -p /src /out
-            tar -C jellyfin --exclude=.git -cf - . | docker cp - compile:/src
-            docker exec --workdir /src compile \
-              dotnet publish Jellyfin.Server/Jellyfin.Server.csproj \
-                -c Release -o /out \
-                -p:UseAppHost=false
-            docker cp compile:/out/. publish/
-            ls -la publish/MediaBrowser.Common.dll
-            echo "编译完成"
-          } 2>&1 | tee -a "$CI_LOG"
+          # SDK 版本从 jellyfin/global.json 推导 (如 10.0 -> sdk:10.0)
+          SDK_VER=$(sed -n 's/.*"version": "\([0-9]*\.[0-9]*\).*/\1/p' jellyfin/global.json)
+          SDK_IMAGE="mcr.microsoft.com/dotnet/sdk:${SDK_VER}"
+          echo "使用 $SDK_IMAGE"
+          printf '<?xml version="1.0" encoding="utf-8"?>\n<configuration>\n  <packageSources>\n    <clear />\n    <add key="mirror" value="%s" />\n  </packageSources>\n</configuration>\n' \
+            "$NUGET_SOURCE" > jellyfin/nuget.config
+          mkdir -p publish
+          # dind daemon 看不见 job 容器的 bind mount, 源码/产物改走 docker cp (API 传输)
+          docker run -d --name compile --workdir /src "$SDK_IMAGE" sleep infinity
+          trap 'docker rm -f compile >/dev/null 2>&1 || true' EXIT
+          docker exec compile mkdir -p /src /out
+          tar -C jellyfin --exclude=.git -cf - . | docker cp - compile:/src
+          docker exec --workdir /src compile \
+            dotnet publish Jellyfin.Server/Jellyfin.Server.csproj \
+              -c Release -o /out \
+              -p:UseAppHost=false
+          docker cp compile:/out/. publish/
+          ls -la publish/MediaBrowser.Common.dll
 
       - name: Build image
         run: |
           set -eo pipefail
-          {
-            UPSTREAM_TAG=$(cd jellyfin && git describe --tags --abbrev=0 | sed 's/^v//')
-            TAG="${UPSTREAM_TAG}-cix.1"
-            docker build \
-              --build-arg BASE_IMAGE="${BASE_IMAGE}" \
-              -t "jellyfin-cix:${TAG}" .
-          } 2>&1 | tee -a "$CI_LOG"
+          UPSTREAM_TAG=$(cd jellyfin && git describe --tags --abbrev=0 | sed 's/^v//')
+          TAG="${UPSTREAM_TAG}-cix"
+          docker build \
+            --build-arg BASE_IMAGE="${BASE_IMAGE}:${UPSTREAM_TAG}" \
+            -t "jellyfin-cix:${TAG}" \
+            -t "jellyfin-cix:latest" .
 
       - name: Push
         run: |
           set -eo pipefail
-          {
-            if [[ "$GITHUB_SERVER_URL" == *github.com* ]]; then
-              echo "GitHub 环境, 跳过内部推送"
-              exit 0
-            fi
-            UPSTREAM_TAG=$(cd jellyfin && git describe --tags --abbrev=0 | sed 's/^v//')
-            TAG="${UPSTREAM_TAG}-cix.1"
-            REGISTRY_HOST="${GITHUB_SERVER_URL#https://}"
-            docker tag "jellyfin-cix:${TAG}" "$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}"
-            docker push "$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}"
-          } 2>&1 | tee -a "$CI_LOG"
-
-      - name: Upload debug log
-        if: always()
-        run: |
           if [[ "$GITHUB_SERVER_URL" == *github.com* ]]; then
+            echo "GitHub 环境, 跳过内部推送"
             exit 0
           fi
-          curl -sS --user "rgan:${{ secrets.JELLYFIN_MIRROR_TOKEN }}" \
-            --upload-file "$CI_LOG" \
-            "$GITHUB_SERVER_URL/api/packages/rgan/generic/jellyfin-cix-debug/${{ github.run_id }}/ci.log" \
-            || echo "日志上传失败(不影响构建结果)"
+          UPSTREAM_TAG=$(cd jellyfin && git describe --tags --abbrev=0 | sed 's/^v//')
+          TAG="${UPSTREAM_TAG}-cix"
+          REGISTRY_HOST="${GITHUB_SERVER_URL#https://}"
+          docker tag "jellyfin-cix:${TAG}" "$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}"
+          docker tag "jellyfin-cix:latest" "$REGISTRY_HOST/rgan/jellyfin-cix:latest"
+          docker push "$REGISTRY_HOST/rgan/jellyfin-cix:${TAG}"
+          docker push "$REGISTRY_HOST/rgan/jellyfin-cix:latest"

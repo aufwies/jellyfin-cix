@@ -1,0 +1,42 @@
+name: Update upstream
+
+# 定时检查上游 jellyfin 新 tag, 自动 bump submodule 并 push (触发 Build)
+"on":
+  schedule:
+    - cron: "0 3 * * *"
+
+env:
+  JELLYFIN_MIRROR_URL: ${{ vars.JELLYFIN_MIRROR_URL }}
+
+jobs:
+  check:
+    name: Check upstream & bump
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bump submodule to latest stable tag
+        run: |
+          set -eo pipefail
+          git config --global user.name "CI"
+          git config --global user.email "ci@localhost"
+          git clone --depth 1 \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@${GITHUB_SERVER_URL#https://}/$GITHUB_REPOSITORY.git" .
+          if [ -n "${JELLYFIN_MIRROR_URL:-}" ]; then
+            git config submodule.jellyfin.url "$JELLYFIN_MIRROR_URL"
+          fi
+          git config --global url."https://rgan:${{ secrets.JELLYFIN_MIRROR_TOKEN }}@${GITHUB_SERVER_URL#https://}/".insteadOf "${GITHUB_SERVER_URL}/"
+          git submodule update --init
+          cd jellyfin
+          git fetch --tags origin
+          # 最新稳定 tag (排除 rc/beta)
+          LATEST=$(git tag -l 'v*' | grep -vE -- '-(rc|beta)' | sort -V | tail -1)
+          CURRENT=$(git describe --tags --abbrev=0)
+          echo "上游最新: $LATEST, 当前: $CURRENT"
+          if [ "$LATEST" = "$CURRENT" ]; then
+            echo "已是最新, 无需更新"
+            exit 0
+          fi
+          git checkout -q "$LATEST"
+          cd ..
+          git add jellyfin
+          git commit -m "chore: bump jellyfin -> $LATEST"
+          git push origin main
