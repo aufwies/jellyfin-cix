@@ -9,8 +9,8 @@ jobs:
   build:
     name: Build image
     runs-on: ubuntu-latest
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+    container:
+      options: --volume /var/run/docker.sock:/var/run/docker.sock
     steps:
       - name: Socket check
         run: |
