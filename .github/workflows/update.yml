@@ -41,3 +41,17 @@ jobs:
           git add jellyfin
           git commit -m "chore: bump jellyfin -> $LATEST"
           git push origin main
+          # Actions 产生的 push 不会触发其它 workflow (防递归), 显式 dispatch Build
+          if [[ "$GITHUB_SERVER_URL" == *github.com* ]]; then
+            curl -sS -X POST \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              -H 'Content-Type: application/json' \
+              -d '{"ref":"main"}' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/build.yml/dispatches"
+          else
+            curl -sS -X POST \
+              -H "Authorization: token ${{ secrets.JELLYFIN_MIRROR_TOKEN }}" \
+              -H 'Content-Type: application/json' \
+              -d '{"ref":"main"}' \
+              "$GITHUB_SERVER_URL/api/v1/repos/$GITHUB_REPOSITORY/actions/workflows/build.yml/dispatches"
+          fi
