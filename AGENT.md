@@ -68,8 +68,8 @@ git 用户名与推送 owner 均从 `GITHUB_REPOSITORY` 运行时推导，无需
 # 1. 开发 fork（cix-vpu 分支）coding → 单测 → tag
 # 2. 本仓库同步补丁:
 ./sync-from-fork.sh ../jellyfin v12.4
-# 3. 提交并 push → CI 自动构建镜像
-git add -A && git commit -m "release 12.4" && git push
+# 3. 提交并 push → CI 自动构建镜像（注意：只 add 补丁文件，勿带上 submodule 指针）
+git add patches/ && git commit -m "release 12.4" && git push
 ```
 
 ## 本地构建
@@ -87,6 +87,11 @@ git config submodule.jellyfin.url <内网镜像地址>
 
 ## 已知平台差异
 
+- **submodule 指针必须指向上游干净 tag**（存在于 mirror 上的提交）。
+  `build.sh`/CI 应用补丁后工作树会停在补丁提交（gitlink 显示 dirty），
+  **绝不提交该指针**——远端没有补丁提交，CI Clone 的
+  `git submodule update --init` 会直接失败。提交时用显式文件列表，
+  不要 `git add -A`/`git add .`。（已在 eabe8b5 踩过，ef4048f 回滚）
 - **GitHub**：`GITHUB_TOKEN` 触发的事件不级联——`update.yml` 每日 bump 推送后**不会**
   自动触发 Build，需手动 dispatch 或配置 PAT secret 代替 dispatch 用的 token。
   Forgejo 无此问题（workflow 已显式 dispatch）。
