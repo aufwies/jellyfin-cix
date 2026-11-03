@@ -9,6 +9,11 @@
 - **VPU**：VeriSilicon MVX，内核驱动 `amvx`，V4L2 M2M。
   `/dev/video0=mvxdec`、`/dev/video1=mvxenc`（video2/3 是 jpeg，镜像无需挂载）。
 - **GPU**：Arm Mali CSF，内核驱动 `panthor`；Mesa 无 VAAPI state tracker。
+  **cix-gpu-umd 完全不参与**（panthor 环境无用），本项目只用 VPU。
+- **镜像仅含 VPU 组件**：`cix-ffmpeg` + libav 四件套。已剔除
+  `cix-libva2` / `cix-libva-drm2` / `cix-vaapi` / `cix-libcme`
+  （readelf 验证零链接引用；libOpenCL loader 是 libavutil/libavfilter
+  的硬链接依赖，与 GPU 无关，必须保留 `ocl-icd-libopencl1`）。
 - **VAAPI 整条路线搁置**：缺 `libdrm_cix.so.1`（见 cix-top 记忆），
   因此一切依赖 VAAPI 的能力当前不可用。
 - **AV1 硬解依赖 VAAPI → 当前不可用**。补丁里 av1→av1_v4l2m2m 的映射
