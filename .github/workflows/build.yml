@@ -17,6 +17,8 @@ env:
   NUGET_SOURCE: ${{ vars.NUGET_SOURCE }}
   BASE_IMAGE: ${{ vars.BASE_IMAGE }}
   JELLYFIN_MIRROR_URL: ${{ vars.JELLYFIN_MIRROR_URL }}
+  SDK_IMAGE_REPO: ${{ vars.SDK_IMAGE_REPO }}
+  REGISTRY_IMAGE: ${{ vars.REGISTRY_IMAGE }}
   USE_MIRROR: ${{ vars.USE_MIRROR }}
 
 jobs:
@@ -35,7 +37,8 @@ jobs:
           if [ -n "${JELLYFIN_MIRROR_URL:-}" ]; then
             git config submodule.jellyfin.url "$JELLYFIN_MIRROR_URL"
           fi
-          git config --global url."https://rgan:${{ secrets.JELLYFIN_MIRROR_TOKEN }}@${GITHUB_SERVER_URL#https://}/".insteadOf "${GITHUB_SERVER_URL}/"
+          OWNER="${GITHUB_REPOSITORY%%/*}"
+          git config --global url."https://${OWNER}:${{ secrets.JELLYFIN_MIRROR_TOKEN }}@${GITHUB_SERVER_URL#https://}/".insteadOf "${GITHUB_SERVER_URL}/"
           git submodule update --init
 
       - name: Apply patches
@@ -59,7 +62,7 @@ jobs:
               | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           else
             echo "${{ secrets.JELLYFIN_MIRROR_TOKEN }}" \
-              | docker login "${GITHUB_SERVER_URL#https://}" -u rgan --password-stdin
+              | docker login "${GITHUB_SERVER_URL#https://}" -u "${GITHUB_REPOSITORY%%/*}" --password-stdin
           fi
 
       - name: Compile
@@ -68,8 +71,11 @@ jobs:
           # SDK 版本从 jellyfin/global.json 推导 (如 10.0 -> sdk:10.0)
           SDK_VER=$(sed -n 's/.*"version": "\([0-9]*\.[0-9]*\).*/\1/p' jellyfin/global.json)
           if [ "${USE_MIRROR:-false}" = "true" ]; then
-            # 内网 registry 的 arm64 SDK (internal-k8s 的 mcr 代理仅缓存 amd64)
-            SDK_IMAGE="${GITHUB_SERVER_URL#https://}/rgan/dotnet-sdk:${SDK_VER}"
+            # 内网 registry 的 arm64 SDK 镜像 (变量 SDK_IMAGE_REPO, 不含 tag)
+            if [ -z "${SDK_IMAGE_REPO:-}" ]; then
+              echo "错误: USE_MIRROR=true 需要设置变量 SDK_IMAGE_REPO (内网 arm64 SDK 镜像 repo, 不含 tag)"; exit 1
+            fi
+            SDK_IMAGE="${SDK_IMAGE_REPO}:${SDK_VER}"
           else
             SDK_IMAGE="mcr.microsoft.com/dotnet/sdk:${SDK_VER}"
           fi
@@ -122,12 +128,12 @@ jobs:
             UPSTREAM_TAG=$(cd jellyfin && git describe --tags --abbrev=0 | sed 's/^v//')
             TAG="${UPSTREAM_TAG}-cix"
           fi
-          # GitHub -> ghcr.io; Forgejo -> 内网 registry
+          # GitHub -> ghcr.io; 内网 -> REGISTRY_IMAGE 变量 (缺省为 <SERVER>/<REPOSITORY>)
           if [[ "$GITHUB_SERVER_URL" == *github.com* ]]; then
             OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
             IMAGE_REF="ghcr.io/${OWNER}/jellyfin-cix"
           else
-            IMAGE_REF="${GITHUB_SERVER_URL#https://}/rgan/jellyfin-cix"
+            IMAGE_REF="${REGISTRY_IMAGE:-${GITHUB_SERVER_URL#https://}/${GITHUB_REPOSITORY}}"
           fi
           docker tag "jellyfin-cix:${TAG}" "$IMAGE_REF:${TAG}"
           docker tag "jellyfin-cix:latest" "$IMAGE_REF:latest"

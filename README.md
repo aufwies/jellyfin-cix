@@ -5,11 +5,11 @@
 
 ## 镜像源映射（USE_MIRROR=true 时）
 
-| 用途 | 直连（默认） | 华为云 mirror |
+| 用途 | 直连（默认） | 镜像（USE_MIRROR=true） |
 |---|---|---|
 | apt | deb.debian.org | repo.huaweicloud.com |
 | NuGet | api.nuget.org | repo.huaweicloud.com |
-| .NET SDK | mcr.microsoft.com/dotnet/sdk | 内网 registry `git.example.com/rgan/dotnet-sdk`（arm64；internal-k8s 的 mcr 代理仅缓存 amd64） |
+| .NET SDK | mcr.microsoft.com/dotnet/sdk | 内网 registry（变量 `SDK_IMAGE_REPO`，arm64） |
 | jellyfin base | docker.io/jellyfin/jellyfin（多架构） | docker.m.daocloud.io/jellyfin/jellyfin（多架构，自动选 arm64） |
 
 ## 版本策略（全自动）
@@ -27,8 +27,12 @@
 |---|---|---|
 | `BASE_IMAGE` | jellyfin 基础镜像 repo（**不含 registry/tag**，CI 按 USE_MIRROR 拼前缀 + 版本） | `jellyfin/jellyfin` |
 | `NUGET_SOURCE` | NuGet 包源 | `https://repo.huaweicloud.com/repository/nuget/v3/index.json` |
-| `JELLYFIN_MIRROR_URL` | submodule 源 | `https://git.example.com/mirrors/jellyfin.git` |
-| `USE_MIRROR` | 统一镜像源开关：apt/SDK/base 镜像全部走华为云（默认 `false` 官方源） | `true` |
+| `JELLYFIN_MIRROR_URL` | submodule 源（内网 git 镜像，覆盖 .gitmodules 默认的 GitHub 上游） | `https://<内网git-host>/mirrors/jellyfin.git` |
+| `SDK_IMAGE_REPO` | USE_MIRROR=true 时的内网 arm64 SDK 镜像 repo（**不含 tag**，CI 自动拼 SDK 版本） | `<registry-host>/<repo>/dotnet-sdk` |
+| `REGISTRY_IMAGE` | 内网推送目标完整镜像路径（**不含 tag**；不设置则默认 `<GITHUB_SERVER_URL>/<GITHUB_REPOSITORY>`） | `<registry-host>/<owner>/jellyfin-cix` |
+| `USE_MIRROR` | 统一镜像源开关：apt/SDK/base 镜像全部走镜像（默认 `false` 官方源） | `true` |
+
+git 访问用户名与推送目标 owner 均从 `GITHUB_REPOSITORY` 运行时推导，无需配置。
 
 另需 **Secrets**：
 - `JELLYFIN_MIRROR_TOKEN` — Forgejo 个人 token（clone submodule / registry 推送 / 登录）
@@ -50,7 +54,7 @@
 ## 发布流程
 
 ```bash
-# 1. 开发仓库(rgan/jellyfin, cix-vpu 分支) coding → 单测 → tag
+# 1. 开发 fork（cix-vpu 分支）coding → 单测 → tag
 # 2. 本仓库同步:
 ./sync-from-fork.sh ../jellyfin v12.2
 # 3. 提交并 push → CI 自动构建镜像
