@@ -5,7 +5,7 @@
 
 ## 特性
 
-- 解码走 CIX VPU（mvxdec）：h264 / hevc / vp8 / vp9 / av1 / mpeg2 / mpeg4 / h263，最高 8K
+- 解码走 CIX VPU（mvxdec）：h264 / hevc / vp8 / vp9 / mpeg2 / mpeg4 / h263，最高 8K
 - 编码走 CIX VPU（mvxenc）：h264 / hevc
 - 不支持的编码自动回退软件编解码，无需人工干预
 - 控制台硬件加速下拉中已注入 **CIX VPU** 选项
@@ -38,4 +38,4 @@ docker run -d \
 └── .github/workflows/   # CI：构建推送 / 上游跟踪
 ```
 
-CI 配置、发布流程、镜像源映射等维护细节见 [AGENTS.md](AGENTS.md)。
+CI 配置、发布流程、镜像源映射等维护细节见 [AGENT.md](AGENT.md)。
