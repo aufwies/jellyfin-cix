@@ -38,7 +38,10 @@ jobs:
             git config submodule.jellyfin.url "$JELLYFIN_MIRROR_URL"
           fi
           OWNER="${GITHUB_REPOSITORY%%/*}"
-          git config --global url."https://${OWNER}:${{ secrets.JELLYFIN_MIRROR_TOKEN }}@${GITHUB_SERVER_URL#https://}/".insteadOf "${GITHUB_SERVER_URL}/"
+          MIRROR_TOKEN="${{ secrets.JELLYFIN_MIRROR_TOKEN }}"
+          if [ -n "$MIRROR_TOKEN" ]; then
+            git config --global url."https://${OWNER}:${MIRROR_TOKEN}@${GITHUB_SERVER_URL#https://}/".insteadOf "${GITHUB_SERVER_URL}/"
+          fi
           git submodule update --init
 
       - name: Apply patches
@@ -68,6 +71,7 @@ jobs:
       - name: Compile
         run: |
           set -eo pipefail
+          NUGET_SOURCE="${NUGET_SOURCE:-https://api.nuget.org/v3/index.json}"
           # SDK 版本从 jellyfin/global.json 推导 (如 10.0 -> sdk:10.0)
           SDK_VER=$(sed -n 's/.*"version": "\([0-9]*\.[0-9]*\).*/\1/p' jellyfin/global.json)
           if [ "${USE_MIRROR:-false}" = "true" ]; then
@@ -108,6 +112,7 @@ jobs:
           fi
           # mirror 模式: daocloud 多架构代理 (自动选 arm64);
           # 直连模式: docker.io 官方多架构 tag
+          BASE_IMAGE="${BASE_IMAGE:-jellyfin/jellyfin}"
           if [ "${USE_MIRROR:-false}" = "true" ]; then
             BASE_REF="docker.m.daocloud.io/${BASE_IMAGE}:${UPSTREAM_TAG}"
           else
