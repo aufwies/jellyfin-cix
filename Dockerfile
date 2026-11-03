@@ -11,7 +11,8 @@
 ARG BASE_IMAGE=docker.io/jellyfin/jellyfin:10.11.11
 FROM ${BASE_IMAGE}
 
-# CIX 专有二进制（deb 解包）
+# CIX VPU 专有二进制（deb 解包；仅 VPU 组件：ffmpeg + libav 四件套。
+# GPU 走 panthor 开源栈，cix-gpu-umd/VAAPI/CME 均不参与，勿再加回）
 COPY debs/ /tmp/cix-debs/
 RUN cd /tmp/cix-debs && \
     for deb in *.deb; do \
@@ -31,13 +32,11 @@ RUN if [ "${USE_MIRROR}" = "true" ]; then \
         libyuv0 ocl-icd-libopencl1 \
     && rm -rf /var/lib/apt/lists/*
 
-# 删除 Debian 的 libav*（CIX 版本必须优先）
+# 删除 Debian 的 libav*（CIX 版本必须优先；系统路径会遮蔽 /usr/share/cix/lib）
 RUN rm -f /usr/lib/aarch64-linux-gnu/libavcodec.so.61* \
           /usr/lib/aarch64-linux-gnu/libavfilter.so.10* \
           /usr/lib/aarch64-linux-gnu/libavformat.so.61* \
           /usr/lib/aarch64-linux-gnu/libavutil.so.59* \
-          /usr/lib/aarch64-linux-gnu/libva.so.2* \
-          /usr/lib/aarch64-linux-gnu/libva-drm.so.2* \
     || true
 
 # ld.so.conf 指向 CIX 库
