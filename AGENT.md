@@ -1,6 +1,24 @@
-# AGENTS.md
+# AGENT.md
 
 面向 CI / 发布流程 / 自动化代理的运维说明。面向使用者的介绍见 [README.md](README.md)。
+平台背景与兄弟项目记忆：`cix-top/AGENT.md`（设备拓扑/指标采集）、
+`immich-machine-learning-cix/AGENT.md`（NPU/NOE）。
+
+## 平台事实（硬件/驱动，勿凭猜测）
+
+- **VPU**：VeriSilicon MVX，内核驱动 `amvx`，V4L2 M2M。
+  `/dev/video0=mvxdec`、`/dev/video1=mvxenc`（video2/3 是 jpeg，镜像无需挂载）。
+- **GPU**：Arm Mali CSF，内核驱动 `panthor`；Mesa 无 VAAPI state tracker。
+- **VAAPI 整条路线搁置**：缺 `libdrm_cix.so.1`（见 cix-top 记忆），
+  因此一切依赖 VAAPI 的能力当前不可用。
+- **AV1 硬解依赖 VAAPI → 当前不可用**。补丁里 av1→av1_v4l2m2m 的映射
+  保留但实际不生效；待 VAAPI 就绪后再验证启用。
+  （备注：真机 v4l2m2m 层面 AV01 小分辨率实测可解，生产可用性未验证，
+  以 VAAPI 就绪为准。）
+- VPU 会话给每个任务打 `can't initialize mutex` 警告（无 CME 守护进程时），
+  非致命，不影响帧输出。
+- 本地调试必须用 `/usr/share/cix/bin/ffmpeg`；宿主机 `/usr/local/bin/ffmpeg`
+  是残缺副本会遮 PATH（容器内无此问题）。
 
 ## 铁律
 
