@@ -1,62 +1,41 @@
 # jellyfin-cix — CIX VPU 硬件加速版 Jellyfin
 
-独立发布项目：submodule 跟踪上游 Jellyfin + CIX 代码补丁 + CIX 专有二进制 deb，
-构建带 VPU 硬件加速的 Docker 镜像。
+基于上游 Jellyfin + CIX 代码补丁 + CIX 专有 ffmpeg/VPU 二进制构建的 Docker 镜像
+（linux/arm64），在 CIX 芯片上提供硬件转码加速。
 
-## 镜像源映射（USE_MIRROR=true 时）
+## 特性
 
-| 用途 | 直连（默认） | 镜像（USE_MIRROR=true） |
-|---|---|---|
-| apt | deb.debian.org | repo.huaweicloud.com |
-| NuGet | api.nuget.org | repo.huaweicloud.com |
-| .NET SDK | mcr.microsoft.com/dotnet/sdk | 内网 registry（变量 `SDK_IMAGE_REPO`，arm64） |
-| jellyfin base | docker.io/jellyfin/jellyfin（多架构） | docker.m.daocloud.io/jellyfin/jellyfin（多架构，自动选 arm64） |
+- 解码走 CIX VPU（mvxdec）：h264 / hevc / vp8 / vp9 / av1 / mpeg2 / mpeg4 / h263，最高 8K
+- 编码走 CIX VPU（mvxenc）：h264 / hevc
+- 不支持的编码自动回退软件编解码，无需人工干预
+- 控制台硬件加速下拉中已注入 **CIX VPU** 选项
+- 版本自动跟随上游：Jellyfin 每发布一个稳定版，镜像自动构建 `<版本>-cix` 与 `latest`
 
-## 版本策略（全自动）
+## 运行
 
-- **上游版本**：`update.yml` 每天定时检查 mirror 最新稳定 tag，自动 bump submodule 并 push，
-  由此触发 Build。升级 Jellyfin 无需任何手工操作。
-- **镜像 tag**：`<上游版本>-cix`（如 `12.2-cix`）+ `latest`，两者都推送。
-- **SDK 版本**：CI 从 `jellyfin/global.json` 推导（如 `10.0` → `mcr.microsoft.com/dotnet/sdk:10.0`），
-  不需要维护。
-- **基础镜像**：`BASE_IMAGE` 只填 repo（不含 tag），CI 自动拼接当前上游版本。
-
-## 环境变量（Forgejo Settings → Actions → Variables）
-
-| 变量 | 用途 | 示例值 |
-|---|---|---|
-| `BASE_IMAGE` | jellyfin 基础镜像 repo（**不含 registry/tag**，CI 按 USE_MIRROR 拼前缀 + 版本） | `jellyfin/jellyfin` |
-| `NUGET_SOURCE` | NuGet 包源 | `https://repo.huaweicloud.com/repository/nuget/v3/index.json` |
-| `JELLYFIN_MIRROR_URL` | submodule 源（内网 git 镜像，覆盖 .gitmodules 默认的 GitHub 上游） | `https://<内网git-host>/mirrors/jellyfin.git` |
-| `SDK_IMAGE_REPO` | USE_MIRROR=true 时的内网 arm64 SDK 镜像 repo（**不含 tag**，CI 自动拼 SDK 版本） | `<registry-host>/<repo>/dotnet-sdk` |
-| `REGISTRY_IMAGE` | 内网推送目标完整镜像路径（**不含 tag**；不设置则默认 `<GITHUB_SERVER_URL>/<GITHUB_REPOSITORY>`） | `<registry-host>/<owner>/jellyfin-cix` |
-| `USE_MIRROR` | 统一镜像源开关：apt/SDK/base 镜像全部走镜像（默认 `false` 官方源） | `true` |
-
-git 访问用户名与推送目标 owner 均从 `GITHUB_REPOSITORY` 运行时推导，无需配置。
-
-另需 **Secrets**：
-- `JELLYFIN_MIRROR_TOKEN` — Forgejo 个人 token（clone submodule / registry 推送 / 登录）
-
-## 结构
-
-```
-├── jellyfin/           # submodule → 上游 jellyfin/jellyfin (自动跟踪最新稳定版)
-├── patches/            # CIX 代码增量（git am 应用到上游 tag）
-├── debs/               # CIX 专有二进制 deb + SHA256SUMS
-├── Dockerfile          # 运行时组装（无编译阶段）
-├── build.sh            # 本地构建入口
-├── sync-from-fork.sh   # 从开发 fork 同步补丁
-└── .github/workflows/
-    ├── build.yml       # push/tag → 编译 + 构建镜像 + 推送 (ghcr.io / 内网 registry 自适应)
-    └── update.yml      # 每日检查上游, 自动 bump submodule
-```
-
-## 发布流程
+镜像已内置 CIX ffmpeg 与全部运行时依赖，容器需挂载 VPU 相关设备：
 
 ```bash
-# 1. 开发 fork（cix-vpu 分支）coding → 单测 → tag
-# 2. 本仓库同步:
-./sync-from-fork.sh ../jellyfin v12.2
-# 3. 提交并 push → CI 自动构建镜像
-git add -A && git commit -m "release 12.2" && git push
+docker run -d \
+  --name jellyfin \
+  --device /dev/video0 --device /dev/video1 \
+  --device /dev/dma_heap/system \
+  -v jellyfin-config:/config \
+  -v /path/to/media:/media \
+  -p 8096:8096 \
+  <registry>/jellyfin-cix:latest
 ```
+
+首次启动后，在 **控制台 → 播放 → 转码** 中将硬件加速选为 **CIX VPU** 即可。
+
+## 目录
+
+```
+├── jellyfin/            # submodule → 上游 jellyfin（每日自动跟踪最新稳定版）
+├── patches/             # CIX 代码补丁（构建时 git am 到上游 tag）
+├── debs/                # CIX 专有二进制 deb + SHA256SUMS
+├── Dockerfile           # 运行时镜像组装（无编译阶段）
+└── .github/workflows/   # CI：构建推送 / 上游跟踪
+```
+
+CI 配置、发布流程、镜像源映射等维护细节见 [AGENTS.md](AGENTS.md)。
