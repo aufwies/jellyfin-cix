@@ -8,22 +8,59 @@
 
 - **VPU**：VeriSilicon MVX，内核驱动 `amvx`，V4L2 M2M。
   `/dev/video0=mvxdec`、`/dev/video1=mvxenc`（video2/3 是 jpeg，镜像无需挂载）。
-- **GPU**：Arm Mali CSF，内核驱动 `panthor`；Mesa 无 VAAPI state tracker。
-  **cix-gpu-umd 完全不参与**（panthor 环境无用），本项目只用 VPU。
+- **GPU 与本项目无关**：VPU 作业全程走纯 V4L2 ioctl，不触碰 `/dev/dri/*`。
+  Mali CSF（panthor 内核）与 Mesa 无 VAAPI 等事实不影响 VPU 能力判定。
+  **cix-gpu-umd 完全不参与**，本项目只用 VPU。
 - **镜像仅含 VPU 组件**：`cix-ffmpeg` + libav 四件套。已剔除
   `cix-libva2` / `cix-libva-drm2` / `cix-vaapi` / `cix-libcme`
   （readelf 验证零链接引用；libOpenCL loader 是 libavutil/libavfilter
   的硬链接依赖，与 GPU 无关，必须保留 `ocl-icd-libopencl1`）。
-- **VAAPI 整条路线搁置**：缺 `libdrm_cix.so.1`（见 cix-top 记忆），
-  因此一切依赖 VAAPI 的能力当前不可用。
-- **AV1 硬解依赖 VAAPI → 当前不可用**。补丁里 av1→av1_v4l2m2m 的映射
-  保留但实际不生效；待 VAAPI 就绪后再验证启用。
-  （备注：真机 v4l2m2m 层面 AV01 小分辨率实测可解，生产可用性未验证，
-  以 VAAPI 就绪为准。）
-- VPU 会话给每个任务打 `can't initialize mutex` 警告（无 CME 守护进程时），
-  非致命，不影响帧输出。
-- 本地调试必须用 `/usr/share/cix/bin/ffmpeg`；宿主机 `/usr/local/bin/ffmpeg`
-  是残缺副本会遮 PATH（容器内无此问题）。
+- **v4l2m2m 硬解完全不依赖 VAAPI（实证修正旧结论）**：
+  cix `libavcodec` 的 ELF NEEDED 清单**零 `libva`**（readelf 实测）；
+  `av1_v4l2m2m` 运行时 strace 只见 `/dev/video*` + `VIDIOC_QBUF/DQBUF/EXPBUF`，
+  **从不打开任何 render 节点**。"AV1 解码需要 VAAPI"的印象源自**上游
+  ffmpeg** av1_v4l2m2m 对 v4l2-request/VAAPI 解析的历史依赖；
+  CIX 专有 libav fork 直连 VPU，不适用该约束。
+
+## VPU 实测能力矩阵（2026-11-04，CIX P1/CP8180 真机，v4l2m2m 路径）
+
+校验方法：硬解抽帧与 CPU 软解同帧 **NV12/P010 逐字节比对**；编码产物回环解码 + 对源 PSNR。
+
+### 解码
+| 编解码 | 覆盖范围 | 结果 |
+|---|---|---|
+| H264 Baseline/Main/High | L3.0 → **L5.2 @ 4K60**（含 1080p/4K30） | ✅ 全部 BIT-EXACT（即 H264 标准封顶全覆盖） |
+| HEVC Main / **Main10** | L4.1 → **L5.2 @ 4K60**；Main10 4K30（p010） | ✅ 全部 BIT-EXACT |
+| HEVC **8K** | L6.1 @ 7680x4320x15 | ✅ 硬解出帧，帧尺寸精确（未做位级比对） |
+| **AV1 Main** | 640x360；**1080p24** | ✅ 全帧解出，~29x 实时；**不依赖 VAAPI/GPU** |
+| VP8/VP9/MPEG1/2/4/VC1/H263 | 驱动已声明 | ⏳ 未逐项实测 |
+
+吞吐（4K30 内容）：h264 ≈ 6.5x、hevc ≈ 7.2x 实时。
+
+### 编码（v4l2m2m = 低功耗档）
+| 编解码 | 覆盖范围 | 结果 |
+|---|---|---|
+| H264 | 720p24、**4K30** | ✅ 出流，level 标注正确；PSNR 720p≈49dB / 4K≈38dB |
+| HEVC | 720p24、4K30、**4K60** | ✅ 出流；PSNR 720p≈51dB / 4K@6Mbps≈29dB；**码流 level 恒标 3.0（驱动瑕疵）** |
+| AV1 | — | ❌ VPU 无编码器硬件（预期内，软件解码时自动回退 CPU） |
+
+### 对发布的影响
+- 补丁中 `av1 → av1_v4l2m2m` 的映射**可以启用**——旧结论"待 VAAPI 就绪"的前提不存在。
+  建议在容器内用真实 AV1 源跑一次 Jellyfin 播放验证后再随下一版转正。
+- HEVC 编码 level 误标：对 Jellyfin 自解码回放无碍；对严格校验 level 的外部客户端有拒收风险，留意。
+
+## 实测坑（工程笔记）
+
+1. cix-ffmpeg 与系统 libav **ABI 不同**：绝不全局 `export LD_LIBRARY_PATH=/usr/share/cix/lib`
+   （会把系统 ffmpeg 打成 `symbol lookup error`），必须按次 `env` 包裹隔离。
+2. 本地调试必须用 `/usr/share/cix/bin/ffmpeg`；宿主机 `/usr/local/bin/ffmpeg`
+   是残缺副本会遮 PATH（容器内无此问题）。
+3. VAAPI 路线的驱动日志**打到 stdout**，会污染 rawvideo 管道校验——校验一律先落盘再比对。
+4. VPU 会话给每个任务打 `can't initialize mutex` 警告（无 CME 守护进程时），
+   非致命，不影响帧输出。
+5. 旧宿主的 VAAPI 路线（libcix_va）缺陷清单（HEVC 解码 SPS-missing / AV1 提交后不回帧
+   把 `bbox_main` 内核线程吊成 D 状态 / CME ret=-7）——本项目不走 VAAPI，勿以其能力
+   推断 v4l2m2m；残留 D 状态不阻塞 v4l2m2m 新作业。
 
 ## 铁律
 
