@@ -15,7 +15,8 @@
   `cix-libva2` / `cix-libva-drm2` / `cix-vaapi` / `cix-libcme`
   （readelf 验证零链接引用；libOpenCL loader 是 libavutil/libavfilter
   的硬链接依赖，与 GPU 无关，必须保留 `ocl-icd-libopencl1`）。
-- **AV1 硬解达成（2026-11-04 真机验证，重大进展）**：`av1_v4l2m2m` 为 CIX libav fork 私有解码器（上游 ffmpeg/Debian 均无此解码器），1080p 实测 ~29x 实时；容器内 ldd 确认 Jellyfin 加载的是 CIX libav，patch 的 `av1 -> av1_v4l2m2m` 路由真实生效。以下旧结论同时作废：
+- **AV1 硬解达成（2026-11-04 真机验证，重大进展）**：1080p 实测 ~29x 实时；容器内 ldd 确认 Jellyfin 加载的是 CIX libav，patch 的 `av1 -> av1_v4l2m2m` 路由真实生效。平台三路 ffmpeg 现状：`av1_v4l2m2m` **仅存在于 cix-ffmpeg 7.1.2-cix**——Debian libav 7.1.5 构建与 base 镜像自带的 jellyfin-ffmpeg 8.1.3 都没有它。以下旧结论同时作废：
+- **base 镜像自带 `/usr/lib/jellyfin-ffmpeg/ffmpeg`（8.1.3-Jellyfin）**：自带 9 个 v4l2m2m 解码器（含 h264/hevc）但**无 `av1_v4l2m2m`**。本项目靠 `ENV JELLYFIN_FFMPEG=/usr/share/cix/bin/ffmpeg` 强制 Jellyfin 用 cix-ffmpeg，启动日志实证 `MediaEncoder: FFmpeg: /usr/share/cix/bin/ffmpeg`、`Found ffmpeg version 7.1.2`。若控制台 UI 手改 ffmpeg 路径或该 env 丢失，会静默回退到自带 jellyfin-ffmpeg——届时 h264/hevc 硬解仍在（表面正常），**唯独 AV1 硬解失效**，症状隐蔽。
 - **v4l2m2m 硬解完全不依赖 VAAPI（实证修正旧结论）**：
   cix `libavcodec` 的 ELF NEEDED 清单**零 `libva`**（readelf 实测）；
   `av1_v4l2m2m` 运行时 strace 只见 `/dev/video*` + `VIDIOC_QBUF/DQBUF/EXPBUF`，
@@ -46,7 +47,7 @@
 | AV1 | — | ❌ VPU 无编码器硬件（预期内，软件解码时自动回退 CPU） |
 
 ### 对发布的影响
-- 补丁中 `av1 → av1_v4l2m2m` 映射已确认可用（容器内 ldd + 解码器存在性实测）；下一版可转正发布，发布前建议补一次 AV1 源端到端播放验证（进容器库 → 触发转码 → 看 vpu-monitor 指标）。
+- 补丁中 `av1 → av1_v4l2m2m` 映射已确认可用（容器内 ldd + 解码器存在性实测）；下一版可转正发布，发布前建议补一次 AV1 源端到端播放验证（进容器库 → 触发转码 → 看容器日志中转码进程的 ffmpeg 路径与 speed 行。注意：集群 pod 里的 vpu-monitor 是 busybox `sleep 300` 占位 sidecar，**无监控逻辑**，勿依赖它取证）。
 - HEVC 编码 level 误标：对 Jellyfin 自解码回放无碍；对严格校验 level 的外部客户端有拒收风险，留意。
 
 ## 实测坑（工程笔记）
@@ -55,11 +56,13 @@
    `av1_v4l2m2m` 等 CIX 私有解码器全部"消失"，症状 `Unknown decoder 'av1_v4l2m2m'`——
    这不是不支持，是库劫持。正确姿势：`env LD_LIBRARY_PATH=/usr/share/cix/lib /usr/share/cix/bin/ffmpeg ...`
    容器无此问题（ld.so.conf.d 指位 + Debian libav 已删，pod 内 ldd 复核过）。
+   **宿主现状（2026-11-04）**：Debian `ffmpeg` CLI 已卸载，`/usr/local/bin/cix-ffmpeg|cix-ffprobe|cix-ffplay` wrapper 已就位；
+   宿主**勿跑 `apt autoremove`**——会连带卸掉 cix libav 需要的 7 个库（libaom3/libvpx9/librav1e/libsvtav1enc/libass9/libx264/libx265），CIX 全家瘫痪。
 
 1. cix-ffmpeg 与系统 libav **ABI 不同**：绝不全局 `export LD_LIBRARY_PATH=/usr/share/cix/lib`
    （会把系统 ffmpeg 打成 `symbol lookup error`），必须按次 `env` 包裹隔离。
-2. 本地调试必须用 `/usr/share/cix/bin/ffmpeg`；宿主机 `/usr/local/bin/ffmpeg`
-   是残缺副本会遮 PATH（容器内无此问题）。
+2. 本地调试统一用 `cix-ffmpeg`（wrapper）；旧"/usr/local/bin/ffmpeg 残缺副本遮 PATH"的坑已随
+   2026-11-04 卸载 Debian ffmpeg CLI 一并消除（宿主现在没有裸 `ffmpeg` 命令）。
 3. VAAPI 路线的驱动日志**打到 stdout**，会污染 rawvideo 管道校验——校验一律先落盘再比对。
 4. VPU 会话给每个任务打 `can't initialize mutex` 警告（无 CME 守护进程时），
    非致命，不影响帧输出。
