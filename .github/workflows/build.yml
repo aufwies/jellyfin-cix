@@ -25,8 +25,8 @@ jobs:
   build:
     name: Build image
     runs-on: ubuntu-latest
-    container:
-      options: --volume /var/run/docker.sock:/var/run/docker.sock
+    # 不声明 job container: GitHub ubuntu-latest 原生有 docker;
+    # Forgejo dind runner 的 docker.sock 挂载在 runner config container.volumes 已解决。
     steps:
       - name: Clone
         run: |
@@ -88,16 +88,18 @@ jobs:
             "$NUGET_SOURCE" > jellyfin/nuget.config
           mkdir -p publish
           # dind daemon 看不见 job 容器的 bind mount, 源码/产物改走 docker cp (API 传输)
-          docker run -d --name compile --workdir /src "$SDK_IMAGE" sleep infinity
-          trap 'docker rm -f compile >/dev/null 2>&1 || true' EXIT
-          docker exec compile mkdir -p /src /out
-          tar -C jellyfin --exclude=.git -cf - . | docker cp - compile:/src
-          docker exec --workdir /src compile \
+          CNAME="compile-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker rm -f compile "$CNAME" >/dev/null 2>&1 || true
+          docker run -d --name "$CNAME" --workdir /src "$SDK_IMAGE" sleep infinity
+          trap 'docker rm -f "$CNAME" >/dev/null 2>&1 || true' EXIT
+          docker exec "$CNAME" mkdir -p /src /out
+          tar -C jellyfin --exclude=.git -cf - . | docker cp - "$CNAME:/src"
+          docker exec --workdir /src "$CNAME" \
             dotnet publish Jellyfin.Server/Jellyfin.Server.csproj \
               -c Release -o /out \
               --self-contained true \
               --runtime linux-arm64
-          docker cp compile:/out/. publish/
+          docker cp "$CNAME:/out/." publish/
           ls -la publish/MediaBrowser.Common.dll
 
       - name: Build image
