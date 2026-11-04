@@ -79,6 +79,18 @@
 - 本仓库历史已于 2026-11 做过全量 scrub + 重写（git-filter-repo + force push），
   不要把已清除的信息以任何形式重新引入。
 
+## CI 架构（双平台兼容，2026-11-04 定案）
+
+- **workflow 文件零 `container:` 块**——GitHub hosted runner 是 VM、docker 原生；且 GH 会对无 image 的 container 块报错。
+- **Forgejo dind runner（forgejo-runner v12.13.2）侧**，job 容器获取 docker.sock 的通道 = runner config：
+  `container.docker_host: unix:///run/docker-inner/docker.sock`（v12 官方键，自动 bind 进 job 容器）。
+- ⚠️ **schema 陷阱**：v12 配置**没有** `container.volumes`、`container.envs` 这两个键（未知键静默忽略，
+  历史配置里的这两段从未生效）。持久缓存卷的正确写法是 `container.options: --volume ...`（配
+  `valid_volumes: ["**"]`）；注入 job 的环境变量放 `runner.envs:`。排查"config 改了没反应"先查
+  `forgejo-runner generate-config` 的官方模板对照键名。
+- 编译容器名唯一化 `compile-$RUN_ID-$ATTEMPT` + 预清扫（固定名残留在 dind daemon 里会永久阻塞后续 run）。
+- 推送目标自适应：GitHub → `ghcr.io/<owner>/jellyfin-cix`；Forgejo → `REGISTRY_IMAGE`。
+
 ## CI 变量（Forgejo Settings → Actions → Variables）
 
 | 变量 | 用途 | 示例 |
