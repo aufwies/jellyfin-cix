@@ -25,8 +25,12 @@ jobs:
   build:
     name: Build image
     runs-on: ubuntu-latest
-    # 不声明 job container: GitHub ubuntu-latest 原生有 docker;
-    # Forgejo dind runner 的 docker.sock 挂载在 runner config container.volumes 已解决。
+    # 本文件保持"无 container 块"以兼容 GitHub runner(GH hosted = VM, docker 原生可用,
+    # 且 GH 会对无 image 的 container 块报错)。Forgejo 侧 docker.sock 进 job 容器由
+    # runner 官方配置解决: forgejo-runner v12.13.2 config 的 container.docker_host
+    # (unix:///run/docker-inner/docker.sock) 自动 bind 进来; 持久缓存卷走 container.options,
+    # 环境变量走 runner.envs —— schema 里没有 container.volumes/envs 这两个键(旧配置的
+    # 这两个键从未生效过, 2026-11-04 实锤)。详见 AGENT.md CI 架构节。
     steps:
       - name: Clone
         run: |
