@@ -7,7 +7,7 @@
 
 - 解码走 CIX VPU（mvxdec，V4L2 M2M）：h264 / hevc / vp8 / vp9 / mpeg2 / mpeg4 / h263，最高 8K
 - 编码走 CIX VPU（mvxenc）：h264 / hevc
-- **AV1 硬解可用（重大特性，2026-11-04 真机验证）**：`av1_v4l2m2m` 是 CIX libav fork 的私有解码器（上游 ffmpeg 没有），v4l2m2m 直连 VPU，**不依赖 VAAPI/GPU**——即使平台没有 VAAPI 也能硬解 AV1。Jellyfin 补丁已含 `av1 -> av1_v4l2m2m` 路由，容器内库加载实测正确
+- **AV1 硬解可用（重大特性，2026-11-04 真机验证）**：`av1_v4l2m2m` 仅存在于镜像内置的 CIX 版 ffmpeg（Debian ffmpeg 与 Jellyfin 官方自带的 jellyfin-ffmpeg 都没有它），v4l2m2m 直连 VPU，**不依赖 VAAPI/GPU**——即使平台没有 VAAPI 也能硬解 AV1。Jellyfin 补丁已含 `av1 -> av1_v4l2m2m` 路由，容器内库加载实测正确
 - 不支持的编码自动回退软件编解码，无需人工干预
 - 控制台硬件加速下拉中已注入 **CIX VPU** 选项
 - 版本自动跟随上游：Jellyfin 每发布一个稳定版，镜像自动构建 `<版本>-cix` 与 `latest`
@@ -56,6 +56,10 @@ docker run -d \
 ```
 
 首次启动后，在 **控制台 → 播放 → 转码** 中将硬件加速选为 **CIX VPU** 即可。
+
+> ⚠️ 请勿在控制台修改 **ffmpeg 路径**：镜像已通过 `JELLYFIN_FFMPEG` 环境变量指向 CIX 版 ffmpeg
+> （启动日志可见 `FFmpeg: /usr/share/cix/bin/ffmpeg`）。若改回镜像自带的 jellyfin-ffmpeg，
+> h264/hevc 硬解依旧正常，但 **AV1 硬解会静默失效**（那个构建没有 AV1 VPU 解码器），症状隐蔽难排查。
 
 ## 目录
 
