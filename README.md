@@ -7,7 +7,7 @@
 
 - 解码走 CIX VPU（mvxdec，V4L2 M2M）：h264 / hevc / vp8 / vp9 / mpeg2 / mpeg4 / h263，最高 8K
 - 编码走 CIX VPU（mvxenc）：h264 / hevc
-- **AV1 硬解可用**（v4l2m2m 直连 VPU，**不依赖 VAAPI/GPU**——即使平台没有 VAAPI 也能硬解 AV1）
+- **AV1 硬解可用（重大特性，2026-11-04 真机验证）**：`av1_v4l2m2m` 是 CIX libav fork 的私有解码器（上游 ffmpeg 没有），v4l2m2m 直连 VPU，**不依赖 VAAPI/GPU**——即使平台没有 VAAPI 也能硬解 AV1。Jellyfin 补丁已含 `av1 -> av1_v4l2m2m` 路由，容器内库加载实测正确
 - 不支持的编码自动回退软件编解码，无需人工干预
 - 控制台硬件加速下拉中已注入 **CIX VPU** 选项
 - 版本自动跟随上游：Jellyfin 每发布一个稳定版，镜像自动构建 `<版本>-cix` 与 `latest`
@@ -39,6 +39,10 @@
 ## 运行
 
 镜像已内置 CIX ffmpeg 与全部运行时依赖，容器需挂载 VPU 相关设备：
+
+> 宿主机调试提示：`/usr/share/cix/bin/ffmpeg` 未内置 RPATH，裸跑会被 Debian libav 劫持，
+> 表现为 `Unknown decoder 'av1_v4l2m2m'`（并非不支持）。必须加前缀
+> `LD_LIBRARY_PATH=/usr/share/cix/lib`；容器内不受影响。
 
 ```bash
 docker run -d \
