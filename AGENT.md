@@ -15,6 +15,7 @@
   `cix-libva2` / `cix-libva-drm2` / `cix-vaapi` / `cix-libcme`
   （readelf 验证零链接引用；libOpenCL loader 是 libavutil/libavfilter
   的硬链接依赖，与 GPU 无关，必须保留 `ocl-icd-libopencl1`）。
+- **AV1 硬解达成（2026-11-04 真机验证，重大进展）**：`av1_v4l2m2m` 为 CIX libav fork 私有解码器（上游 ffmpeg/Debian 均无此解码器），1080p 实测 ~29x 实时；容器内 ldd 确认 Jellyfin 加载的是 CIX libav，patch 的 `av1 -> av1_v4l2m2m` 路由真实生效。以下旧结论同时作废：
 - **v4l2m2m 硬解完全不依赖 VAAPI（实证修正旧结论）**：
   cix `libavcodec` 的 ELF NEEDED 清单**零 `libva`**（readelf 实测）；
   `av1_v4l2m2m` 运行时 strace 只见 `/dev/video*` + `VIDIOC_QBUF/DQBUF/EXPBUF`，
@@ -45,11 +46,15 @@
 | AV1 | — | ❌ VPU 无编码器硬件（预期内，软件解码时自动回退 CPU） |
 
 ### 对发布的影响
-- 补丁中 `av1 → av1_v4l2m2m` 的映射**可以启用**——旧结论"待 VAAPI 就绪"的前提不存在。
-  建议在容器内用真实 AV1 源跑一次 Jellyfin 播放验证后再随下一版转正。
+- 补丁中 `av1 → av1_v4l2m2m` 映射已确认可用（容器内 ldd + 解码器存在性实测）；下一版可转正发布，发布前建议补一次 AV1 源端到端播放验证（进容器库 → 触发转码 → 看 vpu-monitor 指标）。
 - HEVC 编码 level 误标：对 Jellyfin 自解码回放无碍；对严格校验 level 的外部客户端有拒收风险，留意。
 
 ## 实测坑（工程笔记）
+
+0. **宿主机裸跑 cix-ffmpeg = 静默链到 Debian libavcodec**（二进制无 RPATH）：
+   `av1_v4l2m2m` 等 CIX 私有解码器全部"消失"，症状 `Unknown decoder 'av1_v4l2m2m'`——
+   这不是不支持，是库劫持。正确姿势：`env LD_LIBRARY_PATH=/usr/share/cix/lib /usr/share/cix/bin/ffmpeg ...`
+   容器无此问题（ld.so.conf.d 指位 + Debian libav 已删，pod 内 ldd 复核过）。
 
 1. cix-ffmpeg 与系统 libav **ABI 不同**：绝不全局 `export LD_LIBRARY_PATH=/usr/share/cix/lib`
    （会把系统 ffmpeg 打成 `symbol lookup error`），必须按次 `env` 包裹隔离。
