@@ -49,7 +49,12 @@ COPY publish/ /jellyfin/
 RUN set -e; f=$(ls /jellyfin/jellyfin-web/playback-transcoding.*.chunk.js); \
     sed -i 's|\((0,[a-z]*\.jsx)\)(\([A-Za-z]*\.[A-Za-z]*,\){value:"videotoolbox",children:"Apple VideoToolBox"})|\1(\2{value:"videotoolbox",children:"Apple VideoToolBox"}),\1(\2{value:"cix",children:"CIX VPU"})|' "$f" && \
     grep -q 'value:"cix"' "$f" && \
-    echo "web 已注入 CIX VPU 选项: $f"
+    # 复选框组: codec→types 白名单含当前 type 才渲染; cix 追加进 VPU 实测支持的 codec (h264/hevc 解码主力)
+    sed -i 's|{name:"H264",codec:"h264",types:\([^]]*\)\]|{name:"H264",codec:"h264",types:\1,"cix"]|' "$f" && \
+    sed -i 's|{name:"HEVC",codec:"hevc",types:\([^]]*\)\]|{name:"HEVC",codec:"hevc",types:\1,"cix"]|' "$f" && \
+    grep -q 'codec:"h264",types:\[[^]]*"cix"' "$f" && \
+    grep -q 'codec:"hevc",types:\[[^]]*"cix"' "$f" && \
+    echo "web 已注入 CIX VPU 选项 + 硬件解码复选框(h264/hevc): $f"
 
 ENV JELLYFIN_FFMPEG=/usr/share/cix/bin/ffmpeg
 
