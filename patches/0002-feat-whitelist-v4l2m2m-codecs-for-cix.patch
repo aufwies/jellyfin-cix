@@ -1,3 +1,13 @@
+From 3f58666ab3919919e45d6c34331dcde1298ee7b4 Mon Sep 17 00:00:00 2001
+From: jellyfin-cix <jellyfin-cix@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 20:17:59 +0800
+Subject: [PATCH] feat: whitelist v4l2m2m codecs for CIX VPU (hevc enc +
+ h264/hevc/av1 dec)
+
+---
+ MediaBrowser.MediaEncoding/Encoder/EncoderValidator.cs | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
 diff --git a/MediaBrowser.MediaEncoding/Encoder/EncoderValidator.cs b/MediaBrowser.MediaEncoding/Encoder/EncoderValidator.cs
 index 99c08eb9a1..403870afcb 100644
 --- a/MediaBrowser.MediaEncoding/Encoder/EncoderValidator.cs
@@ -16,3 +26,6 @@ index 99c08eb9a1..403870afcb 100644
  
          private static readonly string[] _requiredEncoders =
          [
+-- 
+2.47.3
+
