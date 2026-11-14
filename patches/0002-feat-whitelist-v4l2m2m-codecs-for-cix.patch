@@ -1,0 +1,18 @@
+diff --git a/MediaBrowser.MediaEncoding/Encoder/EncoderValidator.cs b/MediaBrowser.MediaEncoding/Encoder/EncoderValidator.cs
+index 99c08eb9a1..403870afcb 100644
+--- a/MediaBrowser.MediaEncoding/Encoder/EncoderValidator.cs
++++ b/MediaBrowser.MediaEncoding/Encoder/EncoderValidator.cs
+@@ -58,8 +58,11 @@ namespace MediaBrowser.MediaEncoding.Encoder
+             "mpeg4_rkmpp",
+             "vp8_rkmpp",
+             "vp9_rkmpp",
+-            "av1_rkmpp"
+-        ];
++            "av1_rkmpp",
++            "h264_v4l2m2m",
++            "hevc_v4l2m2m",
++            "hevc_v4l2m2m",
++            "av1_v4l2m2m"        ];
+ 
+         private static readonly string[] _requiredEncoders =
+         [
