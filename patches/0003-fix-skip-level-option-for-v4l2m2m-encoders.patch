@@ -1,0 +1,29 @@
+From ac71e5cc70dab49b9ddbca8eb9414238ce8da92b Mon Sep 17 00:00:00 2001
+From: jellyfin-cix <jellyfin-cix@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 22:04:01 +0800
+Subject: [PATCH] fix: skip -level for *_v4l2m2m encoders (CIX VPU mvx rejects
+ it, exit 222)
+
+---
+ MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
+index ebfa78176a..c40f7dd54d 100644
+--- a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
++++ b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
+@@ -2381,6 +2381,11 @@ namespace MediaBrowser.Controller.MediaEncoding
+                 {
+                     param += " -level " + level;
+                 }
++                else if (videoEncoder.EndsWith("_v4l2m2m", StringComparison.OrdinalIgnoreCase))
++                {
++                    // CIX VPU (mvx): -level option is not accepted by the v4l2m2m encoder
++                    // and makes ffmpeg fail with "Numerical result out of range" (exit 222).
++                }
+                 else if (!string.Equals(videoEncoder, "libx265", StringComparison.OrdinalIgnoreCase))
+                 {
+                     param += " -level " + level;
+-- 
+2.47.3
+
