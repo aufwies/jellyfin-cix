@@ -44,6 +44,20 @@
 - **HEVC 编码码流 level 恒标 3.0**（驱动瑕疵）：Jellyfin 自家客户端回放无碍，个别严格校验 level 的外部播放器可能拒收
 - 需要 GPU 全链转码（含滤镜）时，直接用官方 Jellyfin 镜像 + NVIDIA（原生支持），不必在本项目上扩展
 
+## 与 rkmpp（Rockchip）的差异
+
+Jellyfin 上游对 Rockchip RK3588 系的 **rkmpp** 加速是原生一级支持，而 CIX VPU 上游并不认识——本项目即为此而生：
+
+| | rkmpp（RK3588，上游原生） | cix（本项目） |
+|---|---|---|
+| 接入方式 | 官方镜像开箱即用 | 需本仓补丁链（类型枚举/探测白名单/参数兼容/解码分派，6 补丁） |
+| 解码器形态 | `h264_rkmpp` 等 + `-hwaccel rkmpp` 上下文 | `*_v4l2m2m` 常规解码器，`-c:v` 显式指定 |
+| 2D/滤镜 | rkrga 硬件缩放/格式转换，opencl tonemap 管线 | 无对应硬件滤镜暴露，滤镜链走 CPU |
+| 参数兼容 | 上游已代为处理（level/profile 分流） | 需自行剥离 `-level`、降级 constrained profile（驱动边界，见已知限制） |
+| 维护成本 | 跟随上游零维护 | patch 链需跟随上游重构偶尔适配 |
+
+一句话：**rk3588 用户直接用官方 Jellyfin 即可；CIX 平台才需要本镜像**。新硬件编码器接入的方法论（rkmpp 对照 + lavfi 参数实测）记录于 AGENT.md。
+
 ## 运行
 
 镜像已内置 CIX ffmpeg 与全部运行时依赖，容器需挂载 VPU 相关设备：
