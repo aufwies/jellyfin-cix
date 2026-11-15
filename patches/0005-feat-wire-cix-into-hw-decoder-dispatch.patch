@@ -1,0 +1,41 @@
+From 79d8b121d6d849b05bccad17e8ea725b288a0cd9 Mon Sep 17 00:00:00 2001
+From: milo <ci@zvcs.net>
+Date: Sun, 15 Nov 2026 10:17:18 +0800
+Subject: [PATCH] feat: wire cix into hw decoder dispatch (was falling into
+ default arm = full software decode)
+
+---
+ .../MediaEncoding/EncodingHelper.cs                    | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
+index 161998e502..b64e7ac739 100644
+--- a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
++++ b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
+@@ -6584,6 +6584,7 @@ namespace MediaBrowser.Controller.MediaEncoding
+                     HardwareAccelerationType.nvenc => GetNvdecVidDecoder(state, options, videoStream, bitDepth),
+                     HardwareAccelerationType.videotoolbox => GetVideotoolboxVidDecoder(state, options, videoStream, bitDepth),
+                     HardwareAccelerationType.rkmpp => GetRkmppVidDecoder(state, options, videoStream, bitDepth),
++                    HardwareAccelerationType.cix => GetCixVidDecoder(state, options, videoStream, bitDepth),
+                     _ => string.Empty
+                 };
+ 
+@@ -7167,6 +7168,15 @@ namespace MediaBrowser.Controller.MediaEncoding
+             return null;
+         }
+ 
++        /// <summary>
++        /// CIX VPU decoder: v4l2m2m decoders are regular codecs, selected via -c:v on the input.
++        /// Delegates to GetHwaccelType which already carries the cix branch.
++        /// </summary>
++        private string GetCixVidDecoder(EncodingJobInfo state, EncodingOptions options, MediaStream videoStream, int bitDepth)
++        {
++            return GetHwaccelType(state, options, videoStream.Codec, bitDepth, false);
++        }
++
+         public string GetRkmppVidDecoder(EncodingJobInfo state, EncodingOptions options, MediaStream videoStream, int bitDepth)
+         {
+             var isLinux = OperatingSystem.IsLinux();
+-- 
+2.47.3
+
