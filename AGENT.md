@@ -99,6 +99,23 @@ VPU 加速从"UI 能选但全软编"到全流水线跑通共四层修复，缺�
 - 运行节点=worker-node（k3s --docker）：镜像凭据=节点 `docker login`，token 轮换后失效症状 ErrImagePull unauthorized；registries.yaml mirror 机制对 docker 运行时无效。
 - dind 构建卷 29G 会被重型构建堆满（症状 `No space left on device`，~5 分钟速死）：`docker builder prune -af && docker image prune -af` 可回收 ~25G。
 
+## 已知问题清单（2026-11-14 定案）
+
+| # | 问题 | 定性 | 处置 |
+|---|---|---|---|
+| 1 | 10bit HEVC 编码：VPU 仅 8bit（yuv420p10le 输入 0 帧即败） | 硬件边界 | patch 0006 自动软编兜底；Main10 硬解不受影响（L5.2 BIT-EXACT） |
+| 2 | AV1 无 VPU 编码器 | 硬件边界 | 解码硬解（~29x）；输出编码自动回退 CPU |
+| 3 | yadif/scale 滤镜无硬件单元 | 架构边界 | 1080i 源转码 CPU ~250%（软去隔行+缩放）；CIX 无 rkrga 类 2D 滤镜可暴露；GPU 全链方案=官方镜像+nvenc，不做本项目扩展（用户定案"完全没必要"） |
+| 4 | HEVC 编码 level 恒标 3.0 | 驱动瑕疵 | 自家回放无碍；严格客户端拒收风险记录在案 |
+| 5 | HEVC 编码不支持 `-level` 选项（任何值 exit 222） | 驱动边界 | patch 0003 已剥离 |
+| 6 | `constrained_baseline` 编码报 Invalid argument | 驱动边界 | patch 0004 强制降级 baseline |
+| 7 | BDInfo NullReference（BDMV 扫描）+ 偶发 HttpClient.Timeout | 上游噪音 | 不影响播放，不处理 |
+| 8 | 公网 DNS 将 `*.app.example.com` 泛解析到公网 CDN 入口（无内网路由 → traefik 404） | DNS 环境事实 | 客户端须用内网 DNS；非服务故障 |
+| 9 | dind 构建卷 29G 会被重型构建堆满（No space left on device） | 运维项 | `docker builder prune -af && docker image prune -af` 回收 ~25G |
+| 10 | worker-node（k3s --docker）镜像凭据=节点 docker login | 架构事实 | token 轮换后 ErrImagePull unauthorized → 重新 login |
+| 11 | vpu-monitor sidecar 是 busybox 空壳占位 | 遗留物 | 零功能零日志；待删（低优先） |
+| 12 | HEVC 编码 PSNR 4K@6Mbps ≈29dB | 品质参考 | 低码率 4K 软编更优；高码率无感差别 |
+
 ## CI 架构（双平台兼容，2026-11-04 定案）
 
 - **workflow 文件零 `container:` 块**——GitHub hosted runner 是 VM、docker 原生；且 GH 会对无 image 的 container 块报错。
