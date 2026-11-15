@@ -8,7 +8,7 @@
 - 解码走 CIX VPU（mvxdec，V4L2 M2M）：h264 / hevc / vp8 / vp9 / mpeg2 / mpeg4 / h263，最高 8K
 - 编码走 CIX VPU（mvxenc）：h264 / hevc
 - **AV1 硬解可用（重大特性，2026-11-04 真机验证）**：`av1_v4l2m2m` 仅存在于镜像内置的 CIX 版 ffmpeg（Debian ffmpeg 与 Jellyfin 官方自带的 jellyfin-ffmpeg 都没有它），v4l2m2m 直连 VPU，**不依赖 VAAPI/GPU**——即使平台没有 VAAPI 也能硬解 AV1。Jellyfin 补丁已含 `av1 -> av1_v4l2m2m` 路由，容器内库加载实测正确
-- 不支持的编码自动回退软件编解码，无需人工干预
+- 不支持的编码（含 10bit HEVC、AV1）自动回退软件编码，解码硬解不受影响，无需人工干预
 - 控制台硬件加速下拉中已注入 **CIX VPU** 选项
 - 版本自动跟随上游：Jellyfin 每发布一个稳定版，镜像自动构建 `<版本>-cix` 与 `latest`
 
@@ -35,6 +35,14 @@
 | H264 | 720p / **4K30** | 正常，level 标注正确，PSNR 38–49dB |
 | HEVC | 720p / 4K30 / **4K60** | 正常出流；注意码流 **level 恒标 3.0**（驱动瑕疵） |
 | AV1 | — | VPU 无编码器硬件（解码时回退 CPU 软解，不受影响） |
+
+## 已知限制
+
+- **HEVC 编码仅 8bit**：10bit（Main10）源自动回退软件编码（解码不受影响，Main10 硬解正常）
+- **AV1 无编码器**：AV1 源解码硬解、输出转码时编码回退 CPU
+- **滤镜链走 CPU**：去隔行（yadif）、分辨率缩放（scale）等滤镜无硬件单元，1080i 源转码时 CPU 占用明显；1080p 逐行源无此开销
+- **HEVC 编码码流 level 恒标 3.0**（驱动瑕疵）：Jellyfin 自家客户端回放无碍，个别严格校验 level 的外部播放器可能拒收
+- 需要 GPU 全链转码（含滤镜）时，直接用官方 Jellyfin 镜像 + NVIDIA（原生支持），不必在本项目上扩展
 
 ## 运行
 
