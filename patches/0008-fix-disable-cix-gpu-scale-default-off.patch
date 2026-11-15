@@ -1,0 +1,32 @@
+From 8a04ee2f7cb8159fa42016305a2d6c2c7830f2fa Mon Sep 17 00:00:00 2001
+From: milo <ci@zvcs.net>
+Date: Sun, 15 Nov 2026 23:14:06 +0800
+Subject: [PATCH] fix: disable cix GPU scale by default (panvk outputs
+ corrupted green frames on scale_vulkan/libplacebo; env
+ JELLYFIN_CIX_GPU_SCALE=1 to re-enable)
+
+---
+ MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
+index 2e71aaf5e6..90035aad43 100644
+--- a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
++++ b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
+@@ -3538,7 +3538,12 @@ namespace MediaBrowser.Controller.MediaEncoding
+         {
+             var sw = GetSwScaleFilterInternal(state, options, videoEncoder, videoWidth, videoHeight, threedFormat, requestedWidth, requestedHeight, requestedMaxWidth, requestedMaxHeight);
+ 
+-            if (options.HardwareAccelerationType == HardwareAccelerationType.cix
++            // DISABLED 2026-11: panvk (Mali-G720) vulkan filters produce corrupted output
++            // (solid green frames, verified on scale_vulkan AND libplacebo). Re-enable only
++            // after a mesa release passes a pixel-exact smptebars test.
++            var cixGpuScaleEnabled = Environment.GetEnvironmentVariable("JELLYFIN_CIX_GPU_SCALE") == "1";
++            if (cixGpuScaleEnabled
++                && options.HardwareAccelerationType == HardwareAccelerationType.cix
+                 && sw.StartsWith("scale=", StringComparison.Ordinal))
+             {
+                 var expr = sw["scale=".Length..];
+-- 
+2.47.3
+
