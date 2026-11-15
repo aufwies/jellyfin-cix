@@ -1,4 +1,4 @@
-From ec975fc98317579d1eaa86d6d1de6692e17c6e57 Mon Sep 17 00:00:00 2001
+From 0d1287812deea3759499d6c5503379d1ff1260bc Mon Sep 17 00:00:00 2001
 From: jellyfin-cix <jellyfin-cix@users.noreply.github.com>
 Date: Sun, 15 Nov 2026 21:21:41 +0800
 Subject: [PATCH] feat: route cix software scale onto Mali GPU via vulkan
@@ -9,7 +9,7 @@ Subject: [PATCH] feat: route cix software scale onto Mali GPU via vulkan
  1 file changed, 32 insertions(+), 2 deletions(-)
 
 diff --git a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
-index 98423adb3d..bc8f133d4e 100644
+index 98423adb3d..2e71aaf5e6 100644
 --- a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
 +++ b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
 @@ -3528,7 +3528,33 @@ namespace MediaBrowser.Controller.MediaEncoding
@@ -31,7 +31,7 @@ index 98423adb3d..bc8f133d4e 100644
 +                && sw.StartsWith("scale=", StringComparison.Ordinal))
 +            {
 +                var expr = sw["scale=".Length..];
-+                var sep = expr.IndexOf(':');
++                var sep = expr.IndexOf(':', StringComparison.Ordinal);
 +                if (sep > 0)
 +                {
 +                    var w = expr[..sep];
