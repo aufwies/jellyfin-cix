@@ -94,7 +94,9 @@ jobs:
           # dind daemon 看不见 job 容器的 bind mount, 源码/产物改走 docker cp (API 传输)
           CNAME="compile-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           docker rm -f compile "$CNAME" >/dev/null 2>&1 || true
-          docker run -d --name "$CNAME" --workdir /src "$SDK_IMAGE" sleep infinity
+          # nuget 持久缓存 (dind named volume, 跨 run 复用; 省每轮全量下载)
+          docker volume create nuget-cache >/dev/null 2>&1 || true
+          docker run -d --name "$CNAME" --workdir /src -v nuget-cache:/root/.nuget "$SDK_IMAGE" sleep infinity
           trap 'docker rm -f "$CNAME" >/dev/null 2>&1 || true' EXIT
           docker exec "$CNAME" mkdir -p /src /out
           tar -C jellyfin --exclude=.git -cf - . | docker cp - "$CNAME:/src"
