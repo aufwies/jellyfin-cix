@@ -33,11 +33,9 @@ RUN if [ "${USE_MIRROR}" = "true" ]; then \
     && rm -rf /var/lib/apt/lists/*
 
 # Vulkan 运行时 (Mali panvk, GPU scale_vulkan 滤镜管线); mesa>=26.1 必须 (25.0 panvk 初始化失败)
-RUN . /etc/apt/sources.list.d/*verdict* 2>/dev/null; \
-    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
-      sed 's|trixie main|trixie-backports main|' /etc/apt/sources.list.d/debian.sources > /etc/apt/sources.list.d/bpo.list \
-      || cp /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list.d/bpo.list; \
-    fi && \
+RUN MIRROR="repo.huaweicloud.com"; [ "${USE_MIRROR}" != "true" ] && MIRROR="deb.debian.org"; \
+    echo "deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://${MIRROR}/debian trixie-backports main" \
+      > /etc/apt/sources.list.d/bpo.list && \
     apt-get update -qq && \
     apt-get install -y --no-install-recommends -t trixie-backports libvulkan1 mesa-vulkan-drivers && \
     rm -rf /var/lib/apt/lists/*
