@@ -1,0 +1,65 @@
+From ec975fc98317579d1eaa86d6d1de6692e17c6e57 Mon Sep 17 00:00:00 2001
+From: jellyfin-cix <jellyfin-cix@users.noreply.github.com>
+Date: Sun, 15 Nov 2026 21:21:41 +0800
+Subject: [PATCH] feat: route cix software scale onto Mali GPU via vulkan
+ (hwupload,scale_vulkan,hwdownload; device init in GetCixVidDecoder)
+
+---
+ .../MediaEncoding/EncodingHelper.cs           | 34 +++++++++++++++++--
+ 1 file changed, 32 insertions(+), 2 deletions(-)
+
+diff --git a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
+index 98423adb3d..bc8f133d4e 100644
+--- a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
++++ b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
+@@ -3528,7 +3528,33 @@ namespace MediaBrowser.Controller.MediaEncoding
+             return string.Empty;
+         }
+ 
+-        public static string GetSwScaleFilter(
++        /// <summary>
++        /// CIX: when hardware acceleration is cix, route the software scale expression onto the
++        /// Mali GPU via vulkan (hwupload -> scale_vulkan -> hwdownload). scale_vulkan supports the
++        /// same iw/ih expression syntax as scale. The double format chain (yuv420p then nv12) is
++        /// required: hwdownload cannot negotiate nv12 directly on some frame contexts.
++        /// </summary>
++        public static string GetSwScaleFilter(EncodingJobInfo state, EncodingOptions options, string videoEncoder, int? videoWidth, int? videoHeight, Video3DFormat? threedFormat, int? requestedWidth, int? requestedHeight, int? requestedMaxWidth, int? requestedMaxHeight)
++        {
++            var sw = GetSwScaleFilterInternal(state, options, videoEncoder, videoWidth, videoHeight, threedFormat, requestedWidth, requestedHeight, requestedMaxWidth, requestedMaxHeight);
++
++            if (options.HardwareAccelerationType == HardwareAccelerationType.cix
++                && sw.StartsWith("scale=", StringComparison.Ordinal))
++            {
++                var expr = sw["scale=".Length..];
++                var sep = expr.IndexOf(':');
++                if (sep > 0)
++                {
++                    var w = expr[..sep];
++                    var h = expr[(sep + 1)..];
++                    return $"hwupload,scale_vulkan=w={w}:h={h},hwdownload,format=yuv420p,format=nv12";
++                }
++            }
++
++            return sw;
++        }
++
++        private static string GetSwScaleFilterInternal(
+             EncodingJobInfo state,
+             EncodingOptions options,
+             string videoEncoder,
+@@ -7182,7 +7208,11 @@ namespace MediaBrowser.Controller.MediaEncoding
+         /// </summary>
+         private string GetCixVidDecoder(EncodingJobInfo state, EncodingOptions options, MediaStream videoStream, int bitDepth)
+         {
+-            return GetHwaccelType(state, options, videoStream.Codec, bitDepth, false);
++            // -init_hw_device vulkan + -filter_hw_device are global ffmpeg options (valid before -i).
++            // They power the GPU scale pipeline in GetSwScaleFilter; the runtime (mesa panvk ICD)
++            // is guaranteed by the cix image.
++            var vkArgs = GetVulkanDeviceArgs(0, null, null, "vk") + GetFilterHwDeviceArgs("vk");
++            return GetHwaccelType(state, options, videoStream.Codec, bitDepth, false) + vkArgs;
+         }
+ 
+         public string GetRkmppVidDecoder(EncodingJobInfo state, EncodingOptions options, MediaStream videoStream, int bitDepth)
+-- 
+2.47.3
+

@@ -32,6 +32,17 @@ RUN if [ "${USE_MIRROR}" = "true" ]; then \
         libyuv0 ocl-icd-libopencl1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Vulkan 运行时 (Mali panvk, GPU scale_vulkan 滤镜管线); mesa>=26.1 必须 (25.0 panvk 初始化失败)
+RUN . /etc/apt/sources.list.d/*verdict* 2>/dev/null; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed 's|trixie main|trixie-backports main|' /etc/apt/sources.list.d/debian.sources > /etc/apt/sources.list.d/bpo.list \
+      || cp /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list.d/bpo.list; \
+    fi && \
+    apt-get update -qq && \
+    apt-get install -y --no-install-recommends -t trixie-backports libvulkan1 mesa-vulkan-drivers && \
+    rm -rf /var/lib/apt/lists/*
+ENV VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/panfrost_icd.json
+
 # 删除 Debian 的 libav*（CIX 版本必须优先；系统路径会遮蔽 /usr/share/cix/lib）
 RUN rm -f /usr/lib/aarch64-linux-gnu/libavcodec.so.61* \
           /usr/lib/aarch64-linux-gnu/libavfilter.so.10* \
@@ -57,5 +68,6 @@ RUN set -e; f=$(ls /jellyfin/jellyfin-web/playback-transcoding.*.chunk.js); \
     echo "web 已注入 CIX VPU 选项 + 硬件解码复选框(h264/hevc): $f"
 
 ENV JELLYFIN_FFMPEG=/usr/share/cix/bin/ffmpeg
+ENV VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/panfrost_icd.json
 
 # 运行时需挂载: --device /dev/video0 --device /dev/video1 --device /dev/dma_heap/system
