@@ -63,7 +63,11 @@ docker run -d \
   <registry>/jellyfin-cix:latest
 ```
 
-首次启动后，在 **控制台 → 播放 → 转码** 中将硬件加速选为 **CIX VPU** 即可。
+首次启动后，在 **控制台 → 播放 → 转码** 中：
+
+1. 硬件加速选 **CIX VPU**
+2. 勾选硬件解码编解码器：**H264、HEVC**（10bit HEVC / AV1 已单独开关联动，无需手动）
+3. 确认启用硬件编码
 
 > ⚠️ 请勿在控制台修改 **ffmpeg 路径**：镜像已通过 `JELLYFIN_FFMPEG` 环境变量指向 CIX 版 ffmpeg
 > （启动日志可见 `FFmpeg: /usr/share/cix/bin/ffmpeg`）。若改回镜像自带的 jellyfin-ffmpeg，
@@ -73,6 +77,7 @@ docker run -d \
 
 ```
 ├── jellyfin/            # submodule → 上游 jellyfin（每日自动跟踪最新稳定版）
+├── jellyfin-web/        # submodule → 上游 jellyfin-web（@v12.4，前端正路构建备用）
 ├── patches/             # CIX 代码补丁（构建时 git am 到上游 tag）
 ├── debs/                # CIX 专有二进制 deb + SHA256SUMS
 ├── Dockerfile           # 运行时镜像组装（无编译阶段）
