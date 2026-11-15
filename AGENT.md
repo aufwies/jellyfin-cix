@@ -79,6 +79,26 @@
 - 本仓库历史已于 2026-11 做过全量 scrub + 重写（git-filter-repo + force push），
   不要把已清除的信息以任何形式重新引入。
 
+## 运行时补丁链（2026-11-14 硬解+硬编全通，patch 0001-0005）
+
+VPU 加速从"UI 能选但全软编"到全流水线跑通共四层修复，缺一不可：
+
+| patch | 层 | 内容 |
+|---|---|---|
+| Dockerfile sed | 前端 | chunk.js 注入 cix 下拉项 + h264/hevc 复选框 types 白名单（带 grep 断言防静默漏注入） |
+| 0002 | 探测 | EncoderValidator 白名单 +`hevc_v4l2m2m`(encoder) +`h264/hevc/av1_v4l2m2m`(decoder)——上游白名单过滤 ffmpeg 输出，不在名单=SupportsXxx false=加速从未激活 |
+| 0003 | 参数 | `*_v4l2m2m` 跳过 `-level`（mvx 拒绝任何 level 值 → exit 222 播放死循环） |
+| 0004 | 参数 | `h264_v4l2m2m` 加进 rkmpp 同款 constrained profile 强制降级名单（constrained_baseline 实测 Invalid argument） |
+| 0005 | 分派 | 解码总 switch（EncodingHelper GetVideoDecoder 尾部）加 `cix => GetCixVidDecoder`（桥接 GetHwaccelType 既有 cix 分支）——此前 cix 落 `_ => string.Empty` = 全软解，CPU 300% 的来源 |
+
+- 参数容忍度实测（lavfi testsrc2 逐项）：force_key_frames/baseline/high/GOP OK；任何 `-level` 与 `constrained_baseline` 必崩。
+- **10bit HEVC 编码=VPU 硬件边界**（yuv420p10le 输入 0 帧即败）；10bit 源走软编，勿做强转 8bit 兜底（已定案）。
+- patch 必须 `git format-patch`（mbox 头）；裸 diff 会被 CI 的 `git am` 拒（~2 分钟速死在 Apply patches）。
+- 验收判据：命令行 `-i` 前 `-c:v h264_v4l2m2m`（硬解）+ `-i` 后 hevc/h264_v4l2m2m（硬编）+ ffmpeg pid 的 fd 见 video0+video1+dma_heap；CPU 高≠软编（混合流水线软滤镜侧正常）。
+- submodule 内改码流程：改 → commit → `git format-patch -1 --stdout > ../patches/NNNN-*.patch` → 主仓显式 `git add patches/`（勿 add submodule 指针）→ push → dispatch。
+- 运行节点=worker-node（k3s --docker）：镜像凭据=节点 `docker login`，token 轮换后失效症状 ErrImagePull unauthorized；registries.yaml mirror 机制对 docker 运行时无效。
+- dind 构建卷 29G 会被重型构建堆满（症状 `No space left on device`，~5 分钟速死）：`docker builder prune -af && docker image prune -af` 可回收 ~25G。
+
 ## CI 架构（双平台兼容，2026-11-04 定案）
 
 - **workflow 文件零 `container:` 块**——GitHub hosted runner 是 VM、docker 原生；且 GH 会对无 image 的 container 块报错。
