@@ -200,3 +200,39 @@ git config submodule.jellyfin.url <内网镜像地址>
 
 - `debs/SHA256SUMS` 用于校验专有二进制完整性。
 - 本地 `.git/config`、`.git/modules/*` 含内网 remote 属正常本地状态，不会随 push 泄露。
+
+
+## sky1-ffmpeg 切换 + DSL 硬件缩放（2026-11-17，patch 0009-0011）
+
+### ffmpeg 本体切换
+- 镜像主 ffmpeg = **sky1-ffmpeg 8.0.1-dsl1**（`debs/sky1-ffmpeg_8.0.1-dsl1_arm64.deb`，dpkg -i 安装，So 62/11/60 系与镜像内 61 系文件名并存）；cix-ffmpeg 7.1.2 保留 `/usr/share/cix/bin` 回退
+- 源码 = github.com/aufwies/ffmpeg-sky1 分支 **mvx-dsl**：`libavcodec/mvx_uapi.h`（私有 DSL ioctl）+ `dsl_ratio` 解码器选项（v4l2_context 在 OUTPUT STREAMON 前注入）
+- 用法：`ffmpeg -c:v h264_v4l2m2m -dsl_ratio 2 -i 4k.h264` → 解码输出直接 1920x1080
+
+### DSL 实测边界
+- 逐行源 ✓（8bit/10bit Main10 均 rc=0，像素正确，CPU 零开销——30 帧对比 427ms≡427ms）
+- **隔行源 ✗**：驱动 EIO 拒绝（1080i+dsl_ratio=2/4 双双失败）→ 0011 排除隔行
+- 只支持整数分母（2/4 实测；3 未测）
+
+### patch 0009（10bit 撤销软编回落）
+- 旧 0006 判"源 10bit"→libx265 过度保守：转码 filter 链 format=nv12 已降 8bit，VPU 编码器吃得下
+- 实测：10bit UHD → 硬解 → nv12 → hevc_v4l2m2m rc=0；撤销后全片型 VPU 硬编
+
+### patch 0010（profile 参数坑——sky1 8.0 与 cix 7.1.2 行为差异）
+- sky1 8.0 的 v4l2m2m 编码器**拒绝 `-profile:v main` 字符串**（Unable to parse → exit 234）
+- 0004 名单只挡 h264 → 扩展为全部 `_v4l2m2m` 后缀编码器跳过 profile
+- 症状：1080i 蓝光 ISO 播放 exit 234 刷屏；复现方法=从日志抽完整 TranscodeManager 命令在 pod 内重放
+
+### patch 0011（DSL 自动启用）
+- GetCixVidDecoder 追加 GetCixDslArgs：逐行 + 目标=源/2 或 /4 → ` -dsl_ratio N`
+- CPU scale 滤镜不动：DSL 后 in==out，sws 自动 passthrough
+- 模式参照上游 GetRkmppVidDecoder（RGA 硬缩放同思想）
+
+### sky1 deb 打包配方（mesabuild 容器）
+- sky1 仓的 debian/ 打包是空壳（install 清单/symbols 全缺）→ **手打 dpkg-deb**：debian/standard 树 `make install DESTDIR` → 剔 .a → dpkg-deb -b 单包 `sky1-ffmpeg`
+- 依赖：jellyfin 基础镜像内零缺（debian:trixie 裸容器缺 79 个库，别用）
+- 编译坑：libplacebo 头与 FFmpeg 8 API 错配（--disable-libplacebo）
+
+### CI 教训（复用）
+- **勿提交本地 jellyfin submodule 指针**：patches/ 由 CI 在上游 v12.4 tag 上 am；指针指本地 commit → mirror 无此 sha → submodule update 挂（run 643/644 之坑）
+- dind 磁盘满 = job 容器 create 即死、无任何日志（run 639-641）；已扩容 30→60Gi PVC
