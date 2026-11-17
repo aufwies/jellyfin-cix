@@ -60,6 +60,8 @@ jellyfin-cix 已实现 VPU 硬解+硬编（patch 0001-0006），唯一遗留 CPU
 
 - [ ] 关注 Mesa release notes：panvk v12/CSF conformance 与 compute 修复（26.2+/27.x）
 - [ ] 新版 mesa 出来后按 §5 配方编译复测 §6
+- [ ] mvx uAPI 金矿落地（§10）：LD_PRELOAD DSL 注入 PoC → 4K→1080p 全硬件管线实测
+- [ ] cix-vaapi 仓 Q3 release 跟踪（VPP entrypoint 落地即切）
 - [ ] （可选）关注 CIX 官方 PPA 是否发布新版 cixdeb13 deb（7.1.2 之上）带 VPU scale 滤镜
 - [ ] （参考）Sky1 apt 仓的 `ffmpeg 8.0.1+av1v4l2`（FFmpeg 8.0 + AV1 v4l2m2m）与 `libva-v4l2-stateful`（stateful VAAPI 桥）——VPU 线升级候选，与 GPU 绿屏无关
 
@@ -68,3 +70,50 @@ jellyfin-cix 已实现 VPU 硬解+硬编（patch 0001-0006），唯一遗留 CPU
 - jellyfin-cix patch 0007（GPU scale 注入，默认禁用）/ 0008（开关）——镜像已含
 - 宿主 vulkan 探测：`VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/panfrost_icd.json vulkaninfo --summary`（Mali-G720 MC10 / panvk / Vulkan 1.4.354）
 - titan 双 GPU 注意：renderD128=panthor(Mali)，renderD129=nvidia；测试须钉 panfrost ICD
+
+## 9. VAAPI 支线实测（2026-11-17）
+
+**背景**：用户指出 cixtech/cix_vaapi 官方仓（2026-07 Q2 release，活跃）。重测当年证死的 VAAPI 路线。
+
+| 环节 | 结果 | 证据 |
+|---|---|---|
+| 驱动初始化（宿主） | ✅ 重大进展 | `cix-vaapi 2.0.0`（PPA）+ `LIBVA_DRIVER_NAME=cix`，vainfo 全通——**当年 cme_initialize 死链已修**。注意：驱动 so 名 `libcix_va_drv_video.so` 需 symlink 成 `cix_drv_video.so`（libva 命名约定） |
+| H264/HEVC 解码入口 | ✅ 声明 | vainfo 6 个 VLD（H264 全 profile + HEVC Main/Main10） |
+| VP9/AV1 | ❌ 未暴露 | README 声明但 vainfo 不报（此版未开） |
+| **VPP / scale** | ❌ 未实现 | ffmpeg 实测 `Entrypoint 10 (VideoProc) is not supported`；源码仓 ddi 全文 grep VideoProc/VPP 零命中——README 的 "VPP via CME" 是 roadmap 非代码 |
+| 容器内（jellyfin pod） | ❌ 初始化挂 | ENOMEM——CME 有容器化关卡待破（宿主通/pod 不通） |
+| 宿主 ffmpeg 测试注意 | — | 宿主须 `LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu` 隔离（否则加载 cix 旧 libavfilter 报 symbol lookup error） |
+
+**跟踪点**：cix_vaapi 仓 Q1→Q2 迭代活跃（cme 死链已修），若 Q3 落地 VAEntrypointVideoProc，VAAPI 即成为比 panvk 更现实的滤镜路线（走 VPU/CME，不依赖 GPU 驱动成熟度）。
+
+## 10. 💎 mvx VPU 私有 uAPI 金矿（2026-11-17 发现，CME VPP 的底层）
+
+**入口**：cixtech/cix_opensource__vpu_driver commit `eb86680`（DPTSW-24525）新增 `cix-vpu-libc-dev` 包，开放 `/usr/include/mvx-v4l2-controls.h`（662 行，branch cix_p1_k6.6_master）。**ffmpeg v4l2m2m wrapper 完全不使用这些接口——"VPU 无 scale"是 ffmpeg 层假象。**
+
+### 硬件 VPP 能力清单
+
+| 能力 | uAPI | 备注 |
+|---|---|---|
+| **任意比例缩放** | `VIDIOC_S_MVX_DSL_RATIO`（`struct v4l2_mvx_dsl_ratio{hor, ver}`）+ `VIDIOC_S_MVX_DSL_MODE` + `V4L2_CID_MVE_VIDEO_DSL_INTERP_MODE`（插值模式） | DSL=DownScaleLayer，水平/垂直独立比例 |
+| 快捷缩放档 | `V4L2_BUF_FRAME_FLAG_SCALING_2/_4`（解码 buf flag） | 1/2、1/4 档；**4K→1080p 恰好 SCALING_4** |
+| 旋转 90/180/270 | FRAME_FLAG_ROTATION（解码+编码两侧）+ ENCODE_FLAG_ROTATION | 硬件旋转 |
+| 镜像 | FRAME_FLAG_MIRROR_HORI/VERT（编码侧） | |
+| **CSC 色彩转换** | `VIDIOC_S_MVX_COLOR_CONV_COEF` + `RGB2YUV_COLOR_CONV_COEF`（私有 ioctl，自定义系数） | 硬件色彩空间转换 |
+| **OSD overlay** | `VIDIOC_S_MVX_OSD_CONFIG / OSD_INFO` | 硬件叠加 |
+| ROI/EPR/QP | `S_MVX_ROI_REGIONS`、`S_MVX_QP_EPR` | 编码质量区域 |
+| 其他 | SEI userdata、long_term_ref、lambda_scale、mini_frame、CHR、HUFF、seamless_target | 编码器高级控制 |
+
+### 落地路径（按可行性排序）
+
+1. **LD_PRELOAD 拦截 `VIDIOC_QBUF`/`VIDIOC_S_EXT_CTRLS` 注入 DSL**（不动 cix ffmpeg 二进制）：包装库拦截 ioctl，对解码会话注入 DSL_RATIO → 输出即缩小帧 → v4l2m2m 原尺寸编码 = 全硬件转码管线。工程量小、可容器化、可逆。
+2. **独立 V4L2 管线工具**：绕 ffmpeg，C 直写 mvx m2m 会话（解码+DSL 一体）。适合验证与 CME 对齐行为。
+3. **给 cix_vaapi 仓贡献 VAEntrypointVideoProc**（源码开放，Q3 若未自实现）：用上述 uAPI 实现 VPP entrypoint → jellyfin 走 vaapi 类型原生 VPP。工程量大但最正统。
+4. **等 CIX 官方**：cix_vaapi Q3 / CME SDK 新版。
+
+### 待验证问题
+
+- [ ] DSL_RATIO 语义（比例表达：分子/分母还是移位？）——需写 probe 程序对 /dev/video0 实测
+- [ ] DSL 是解码会话属性还是独立 pass？（头文件位置在通用 controls 区，倾向解码会话）
+- [ ] 驱动版本依赖：我们 dkms cix-vpu-driver 1.0.1-3 是否已含 DSL uAPI（对照 driver 源码）
+- [ ] 与 AFBC/tile 输出格式的交互
+
