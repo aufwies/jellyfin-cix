@@ -8,7 +8,9 @@
 - 解码走 CIX VPU（mvxdec，V4L2 M2M）：h264 / hevc / vp8 / vp9 / mpeg2 / mpeg4 / h263，最高 8K
 - 编码走 CIX VPU（mvxenc）：h264 / hevc
 - **AV1 硬解可用（重大特性，2026-11-04 真机验证）**：`av1_v4l2m2m` 仅存在于镜像内置的 CIX 版 ffmpeg（Debian ffmpeg 与 Jellyfin 官方自带的 jellyfin-ffmpeg 都没有它），v4l2m2m 直连 VPU，**不依赖 VAAPI/GPU**——即使平台没有 VAAPI 也能硬解 AV1。Jellyfin 补丁已含 `av1 -> av1_v4l2m2m` 路由，容器内库加载实测正确
-- 不支持的编码（含 10bit HEVC、AV1）自动回退软件编码，解码硬解不受影响，无需人工干预
+- **10bit 源也走 VPU 硬编**：转码管线自动降 8bit（format=nv12）后直入 mvxenc，无需软编兜底
+- **VPU 硬件缩放（DSL）**：逐行源目标=源 1/2 或 1/4 时，解码同时由 VPU 顺手缩小（`-dsl_ratio`），CPU scale 归零（10bit Main10 同样支持；隔行源除外，维持 CPU）
+- ffmpeg 本体 = **sky1-ffmpeg 8.0.1-dsl1**（开源 ffmpeg-sky1 + mvx dsl_ratio 私有 uAPI 白盒集成，源码见 fork 分支 mvx-dsl）；镜像内保留 cix-ffmpeg 7.1.2 作回退
 - 控制台硬件加速下拉中已注入 **CIX VPU** 选项
 - 版本自动跟随上游：Jellyfin 每发布一个稳定版，镜像自动构建 `<版本>-cix` 与 `latest`
 - 仅适用于 CIX 芯片（RK3588 等平台请直接用官方 Jellyfin 的 rkmpp 加速）
