@@ -1,0 +1,38 @@
+From f4368b9d60bf758ec4b4b91c5d9b0f099c606040 Mon Sep 17 00:00:00 2001
+From: jellyfin-cix <jellyfin-cix@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 18:42:07 +0800
+Subject: [PATCH] fix: always prefer VPU hw encode for 10-bit sources (pipeline
+ converts to 8-bit; libx265 fallback removed)
+
+---
+ .../MediaEncoding/EncodingHelper.cs                | 14 +++++---------
+ 1 file changed, 5 insertions(+), 9 deletions(-)
+
+diff --git a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
+index 90035aad43..35d441b0e0 100644
+--- a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
++++ b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
+@@ -235,15 +235,11 @@ namespace MediaBrowser.Controller.MediaEncoding
+                     && codecMap.TryGetValue(hwType, out var preferredEncoder)
+                     && _mediaEncoder.SupportsEncoder(preferredEncoder))
+                 {
+-                    // CIX VPU (mvxenc) encodes 8-bit only; 10-bit input fails with
+-                    // "Conversion failed" (0 frames). Fall back to software encoding.
+-                    // Decoding is unaffected: hevc_v4l2m2m handles Main10 fine.
+-                    var isCix10Bit = hwType == HardwareAccelerationType.cix
+-                        && (state.VideoStream?.BitDepth ?? 8) > 8;
+-                    if (!isCix10Bit)
+-                    {
+-                        return preferredEncoder;
+-                    }
++                    // CIX VPU (mvxenc) encodes 8-bit only. 10-bit sources are NOT
++                    // sent to software anymore: the transcode filter chain converts
++                    // to 8-bit (format=nv12) on the way, so VPU hw encode is used for
++                    // 10-bit sources too (verified: 10bit UHD -> hw decode -> nv12 -> hevc_v4l2m2m rc=0).
++                    return preferredEncoder;
+                 }
+             }
+ 
+-- 
+2.47.3
+
