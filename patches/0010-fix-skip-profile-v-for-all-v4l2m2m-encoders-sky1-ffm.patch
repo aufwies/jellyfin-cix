@@ -1,0 +1,27 @@
+From 18608898d5ea72729bb4b402e6a548e7997c27d7 Mon Sep 17 00:00:00 2001
+From: jellyfin-cix <jellyfin-cix@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 19:42:30 +0800
+Subject: [PATCH] fix: skip -profile:v for all v4l2m2m encoders (sky1 ffmpeg
+ 8.0 hevc_v4l2m2m rejects profile string -> exit 234 on 1080i bluray
+ transcode)
+
+---
+ MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
+index fe90cbe6f7..cf6b0ab078 100644
+--- a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
++++ b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
+@@ -2346,7 +2346,7 @@ namespace MediaBrowser.Controller.MediaEncoding
+             {
+                 // Currently there's no profile option in av1_nvenc encoder
+                 if (!(string.Equals(videoEncoder, "av1_nvenc", StringComparison.OrdinalIgnoreCase)
+-                      || string.Equals(videoEncoder, "h264_v4l2m2m", StringComparison.OrdinalIgnoreCase)))
++                      || videoEncoder.EndsWith("_v4l2m2m", StringComparison.OrdinalIgnoreCase)))
+                 {
+                     param += " -profile:v:0 " + profile;
+                 }
+-- 
+2.47.3
+
