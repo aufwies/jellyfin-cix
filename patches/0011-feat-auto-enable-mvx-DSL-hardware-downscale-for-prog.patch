@@ -1,0 +1,67 @@
+From 1587de907108f02771768426258078db4733f934 Mon Sep 17 00:00:00 2001
+From: jellyfin-cix <jellyfin-cix@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 20:29:32 +0800
+Subject: [PATCH] feat: auto-enable mvx DSL hardware downscale for progressive
+ sources (target=src/2 or /4 -> -dsl_ratio N; CPU scale becomes no-op)
+
+---
+ .../MediaEncoding/EncodingHelper.cs           | 43 ++++++++++++++++++-
+ 1 file changed, 42 insertions(+), 1 deletion(-)
+
+diff --git a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
+index cf6b0ab078..f29a3c5719 100644
+--- a/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
++++ b/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
+@@ -7253,7 +7253,48 @@ namespace MediaBrowser.Controller.MediaEncoding
+             // They power the GPU scale pipeline in GetSwScaleFilter; the runtime (mesa panvk ICD)
+             // is guaranteed by the cix image.
+             var vkArgs = GetVulkanDeviceArgs(0, null, null, "vk") + GetFilterHwDeviceArgs("vk");
+-            return GetHwaccelType(state, options, videoStream.Codec, bitDepth, false) + vkArgs;
++            return GetHwaccelType(state, options, videoStream.Codec, bitDepth, false) + vkArgs + GetCixDslArgs(state, videoStream);
++        }
++
++        /// <summary>
++        /// CIX mvx VPU downscale (DSL): when the transcode target is exactly source/2 or source/4
++        /// and the source is progressive, let the VPU downscale during decode (-dsl_ratio N).
++        /// The downstream CPU scale filter then becomes a no-op (in==out).
++        /// Interlaced sources are excluded: the mvx driver rejects DSL on interlaced streams (EIO).
++        /// Requires the sky1-ffmpeg build (dsl_ratio decoder option).
++        /// </summary>
++        private string GetCixDslArgs(EncodingJobInfo state, MediaStream videoStream)
++        {
++            if (videoStream is null || videoStream.IsInterlaced)
++            {
++                return string.Empty;
++            }
++
++            var inW = state.VideoStream?.Width ?? 0;
++            var inH = state.VideoStream?.Height ?? 0;
++            if (inW <= 0 || inH <= 0)
++            {
++                return string.Empty;
++            }
++
++            var outW = state.BaseRequest.Width ?? 0;
++            var outH = state.BaseRequest.Height ?? 0;
++            var maxW = state.BaseRequest.MaxWidth ?? 0;
++            var maxH = state.BaseRequest.MaxHeight ?? 0;
++
++            foreach (var ratio in new[] { 2, 4 })
++            {
++                var targetW = inW / ratio;
++                var targetH = inH / ratio;
++                var widthMatch = (outW > 0 && outW == targetW) || (outW <= 0 && maxW > 0 && maxW == targetW);
++                var heightMatch = (outH > 0 && outH == targetH) || (outH <= 0 && (maxH <= 0 || maxH == targetH));
++                if (widthMatch && heightMatch)
++                {
++                    return " -dsl_ratio " + ratio;
++                }
++            }
++
++            return string.Empty;
+         }
+ 
+         public string GetRkmppVidDecoder(EncodingJobInfo state, EncodingOptions options, MediaStream videoStream, int bitDepth)
+-- 
+2.47.3
+
