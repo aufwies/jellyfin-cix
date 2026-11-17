@@ -117,3 +117,21 @@ jellyfin-cix 已实现 VPU 硬解+硬编（patch 0001-0006），唯一遗留 CPU
 - [ ] 驱动版本依赖：我们 dkms cix-vpu-driver 1.0.1-3 是否已含 DSL uAPI（对照 driver 源码）
 - [ ] 与 AFBC/tile 输出格式的交互
 
+
+## 11. 🏆 DSL 硬件缩放 PoC 成功（2026-11-17，本档案最重要成果）
+
+**LD_PRELOAD 注入方案端到端打通**（`libdsl.so`，~50 行 C，源码见 docs/poc/）：
+
+| 验收 | 结果 |
+|---|---|
+| uAPI | `VIDIOC_S_MVX_DSL_RATIO{hor,ver}` + `DSL_MODE` 驱动接受 rc=0（G_ 读回 ENOTTY=只写接口，正常） |
+| 尺寸 | 4K→DSL 2:1→1920×1080（3110400B 精确）；4:1→960×540（777600B 精确） |
+| 像素 | 视觉校验通过：彩条/对角线/棋盘/文字完整正常，无绿屏/损坏/错位（与 CPU scale md5 不同=算法不同，内容均正确） |
+
+注入原理：拦截 `ioctl(VIDIOC_STREAMON, OUTPUT)`，在码流端 streamon 前先设 DSL（此时序有效；probe 确认 S_FMT 后、STREAMON 前窗口可用）。用法：`LD_PRELOAD=libdsl.so MVX_DSL_HOR=2 MVX_DSL_VER=2 ffmpeg ...`
+
+### 待办（jellyfin 集成路线）
+- [ ] DSL_RATIO 非整数/任意值语义（3=1/3? 只支持整数分母?）→ 决定适用场景矩阵（2/4 整除的转码请求）
+- [ ] jellyfin 整合 v1：镜像带 libdsl.so + patch：目标尺寸=源/2 或 /4 时注入 DSL 并跳过 CPU scale
+- [ ] jellyfin 整合 v2（正路）：ffmpeg-sky1 基座写 vf_scale_mvxdsl 滤镜（rkmpp 的 scale_rkrga 同款模式）
+- [ ] 旋转/镜像 flag（同 buf flag 体系）顺手验证
