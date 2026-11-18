@@ -96,7 +96,7 @@ VPU 加速从"UI 能选但全软编"到全流水线跑通共四层修复，缺�
 - patch 必须 `git format-patch`（mbox 头）；裸 diff 会被 CI 的 `git am` 拒（~2 分钟速死在 Apply patches）。
 - 验收判据：命令行 `-i` 前 `-c:v h264_v4l2m2m`（硬解）+ `-i` 后 hevc/h264_v4l2m2m（硬编）+ ffmpeg pid 的 fd 见 video0+video1+dma_heap；CPU 高≠软编（混合流水线软滤镜侧正常）。
 - submodule 内改码流程：改 → commit → `git format-patch -1 --stdout > ../patches/NNNN-*.patch` → 主仓显式 `git add patches/`（勿 add submodule 指针）→ push → dispatch。
-- 运行节点=worker-node（k3s --docker）：镜像凭据=节点 `docker login`，token 轮换后失效症状 ErrImagePull unauthorized；registries.yaml mirror 机制对 docker 运行时无效。
+- 运行节点（k3s --docker 运行时）：镜像凭据=节点 `docker login`，token 轮换后失效症状 ErrImagePull unauthorized；registries.yaml mirror 机制对 docker 运行时无效。
 - dind 构建卷 29G 会被重型构建堆满（症状 `No space left on device`，~5 分钟速死）：`docker builder prune -af && docker image prune -af` 可回收 ~25G。
 
 ## 已知问题清单（2026-11-14 定案）
@@ -110,9 +110,9 @@ VPU 加速从"UI 能选但全软编"到全流水线跑通共四层修复，缺�
 | 5 | HEVC 编码不支持 `-level` 选项（任何值 exit 222） | 驱动边界 | patch 0003 已剥离 |
 | 6 | `constrained_baseline` 编码报 Invalid argument | 驱动边界 | patch 0004 强制降级 baseline |
 | 7 | BDInfo NullReference（BDMV 扫描）+ 偶发 HttpClient.Timeout | 上游噪音 | 不影响播放，不处理 |
-| 8 | 公网 DNS 将 `*.app.example.com` 泛解析到公网 CDN 入口（无内网路由 → traefik 404） | DNS 环境事实 | 客户端须用内网 DNS；非服务故障 |
+| 8 | 公网 DNS 将内部泛域名泛解析到公网 CDN 入口（无内网路由 → traefik 404） | DNS 环境事实 | 客户端须用内网 DNS；非服务故障 |
 | 9 | dind 构建卷 29G 会被重型构建堆满（No space left on device） | 运维项 | `docker builder prune -af && docker image prune -af` 回收 ~25G |
-| 10 | worker-node（k3s --docker）镜像凭据=节点 docker login | 架构事实 | token 轮换后 ErrImagePull unauthorized → 重新 login |
+| 10 | k3s --docker 节点镜像凭据=节点 docker login | 架构事实 | token 轮换后 ErrImagePull unauthorized → 重新 login |
 | 11 | vpu-monitor sidecar 是 busybox 空壳占位 | 遗留物 | 零功能零日志；待删（低优先） |
 | 12 | HEVC 编码 PSNR 4K@6Mbps ≈29dB | 品质参考 | 低码率 4K 软编更优；高码率无感差别 |
 

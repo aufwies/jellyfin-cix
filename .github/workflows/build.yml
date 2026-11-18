@@ -41,6 +41,11 @@ jobs:
           if [ -n "${JELLYFIN_MIRROR_URL:-}" ]; then
             git config submodule.jellyfin.url "$JELLYFIN_MIRROR_URL"
           fi
+          # jellyfin-web submodule 同款内网镜像覆盖机制(.gitmodules 指上游 GitHub,
+          # 内网 Forgejo 构建时经此变量改指内网 mirror, 凭据走全局 insteadOf)
+          if [ -n "${JELLYFINWEB_MIRROR_URL:-}" ]; then
+            git config submodule.jellyfin-web.url "$JELLYFINWEB_MIRROR_URL"
+          fi
           OWNER="${GITHUB_REPOSITORY%%/*}"
           MIRROR_TOKEN="${{ secrets.JELLYFIN_MIRROR_TOKEN }}"
           if [ -n "$MIRROR_TOKEN" ]; then
